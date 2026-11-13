@@ -140,6 +140,9 @@
         </div>
         <label><input type="checkbox" name="cloudEnabled">Send data to Firebase for the phone app</label>
         <label><input type="checkbox" name="remoteControl">Allow the phone app to change mode, open, acknowledge and edit settings (Close and Mute always work)</label>
+        <label><input type="checkbox" name="sleepEnabled">Power saving: deep sleep between checks while the tank is idle</label>
+        <label>Minutes asleep between checks (1 to 60)<input name="sleepMinutes" type="number" min="1" max="60" value="10"></label>
+        <p class="muted">While asleep the unit does not measure, fill, or answer this page or the phone app. It stays awake during a fill, a fault, when the level is near the start threshold, and while this page is open. Press ACK to wake it, for example before a firmware update.</p>
         <div class="row" style="margin-top:12px"><button class="primary">Save and restart</button></div>
       </form>
     </section>
@@ -234,6 +237,7 @@
     $('estop').textContent = s.inputs.estopHealthy ? 'healthy' : 'PRESSED or wire open';
     $('k1').textContent = s.inputs.k1Enabled ? 'energised' : 'dropped out';
     $('banners').textContent = '';
+    if (s.simulated) banner('warn', 'BENCH-TEST FIRMWARE: simulated level and inputs, valve output disabled');
     (s.faults || []).forEach((f) => banner('bad', 'FAULT: ' + f.replace(/_/g, ' ')));
     (s.warnings || []).forEach((w) => banner('warn', 'Warning: ' + pretty(w)));
     if (!s.faults.length && !s.armed) banner('warn', 'DISARMED: acknowledge to arm automatic filling');
@@ -302,6 +306,7 @@
     const f = $('netForm').elements;
     f.wifiSsid.value = r.data.wifiSsid; f.fbDbUrl.value = r.data.fbDbUrl; f.fbEmail.value = r.data.fbEmail;
     f.cloudEnabled.checked = r.data.cloudEnabled; f.remoteControl.checked = r.data.remoteControl;
+    f.sleepEnabled.checked = r.data.sleepEnabled; f.sleepMinutes.value = r.data.sleepMinutes;
     $('hasWifi').textContent = r.data.hasWifiPass ? '(saved)' : '';
     $('hasKey').textContent = r.data.hasFbApiKey ? '(saved)' : '';
     $('hasFbPw').textContent = r.data.hasFbPassword ? '(saved)' : '';

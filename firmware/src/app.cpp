@@ -20,6 +20,7 @@ ag::SafetyInputs inputs;
 NetSettings net;
 volatile bool setupApActive = false;
 volatile bool otaInProgress = false;
+volatile uint32_t sleepUntilEpoch = 0;
 
 namespace {
 LogEntry logRing[kLogSize];
@@ -157,6 +158,9 @@ void fillStatus(JsonObject o) {
   o["tankName"] = cfg.tankName;
   o["uptimeS"] = now / 1000;
   o["ts"] = epochNow();
+#ifdef AQUAGUARD_SIMULATION
+  o["simulated"] = true;  // bench-test build: pretend sensor and inputs, valve output disabled
+#endif
 
   const bool valid = !pipeline.isStale(now);
   JsonObject level = o["level"].to<JsonObject>();
@@ -177,6 +181,12 @@ void fillStatus(JsonObject o) {
   o["commissioned"] = cfg.commissioned;
   o["remoteControl"] = net.remoteControl;
   o["muted"] = safety.muted();
+  if (net.sleepEnabled) {
+    JsonObject power = o["power"].to<JsonObject>();
+    power["sleepMinutes"] = net.sleepMinutes;
+    // Set just before a power-saving sleep: when the next report is due.
+    if (sleepUntilEpoch) power["sleepUntil"] = static_cast<uint32_t>(sleepUntilEpoch);
+  }
 
   JsonObject valve = o["valve"].to<JsonObject>();
   // Commanded state only: there is no flow or position feedback.

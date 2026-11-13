@@ -192,6 +192,8 @@ void loadNet(NetSettings& n) {
   n.fbDbUrl = p.getString("fburl", "");
   n.fbEmail = p.getString("fbmail", "");
   n.fbPassword = p.getString("fbpass", "");
+  n.sleepEnabled = p.getBool("sleep", false);
+  n.sleepMinutes = constrain(p.getUChar("sleepmin", 10), 1, 60);
   if (n.apPassword.length() < 8) {
     n.apPassword = randomHex(5);  // 10 hex characters, unique per unit
     p.putString("appass", n.apPassword);
@@ -218,6 +220,8 @@ void saveNet(const NetSettings& n) {
   p.putString("fburl", n.fbDbUrl);
   p.putString("fbmail", n.fbEmail);
   p.putString("fbpass", n.fbPassword);
+  p.putBool("sleep", n.sleepEnabled);
+  p.putUChar("sleepmin", n.sleepMinutes);
   p.end();
 }
 

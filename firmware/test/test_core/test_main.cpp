@@ -625,6 +625,49 @@ void test_millis_rollover_does_not_break_timers() {
   TEST_ASSERT_FALSE(r.sm.valveRequest());
 }
 
+// ------------------------------------------------------------------ sleep resume
+
+void test_resume_after_sleep_arms_only_when_everything_is_healthy() {
+  Rig r;
+  r.run(100);
+  TEST_ASSERT_FALSE(r.sm.armed());
+  TEST_ASSERT_EQUAL(static_cast<int>(Deny::None), static_cast<int>(r.sm.resumeAfterSleep(r.now)));
+  TEST_ASSERT_TRUE(r.sm.armed());
+  TEST_ASSERT_FALSE(r.sm.valveRequest());  // 60 %: nothing to fill
+}
+
+void test_resume_after_sleep_never_clears_a_latch() {
+  Rig r(kFaultFillTimeout);
+  r.run(100);
+  TEST_ASSERT_NOT_EQUAL(static_cast<int>(Deny::None), static_cast<int>(r.sm.resumeAfterSleep(r.now)));
+  TEST_ASSERT_FALSE(r.sm.armed());
+  TEST_ASSERT_TRUE(r.sm.faults() & kFaultFillTimeout);
+}
+
+void test_resume_after_sleep_refuses_unhealthy_inputs() {
+  {
+    Rig r;
+    r.in.levelValid = false;
+    r.run(100);
+    TEST_ASSERT_EQUAL(static_cast<int>(Deny::SensorStale), static_cast<int>(r.sm.resumeAfterSleep(r.now)));
+    TEST_ASSERT_FALSE(r.sm.armed());
+  }
+  {
+    Rig r;
+    r.in.k1Enabled = false;
+    r.in.floatHealthy = false;
+    r.run(100);
+    TEST_ASSERT_NOT_EQUAL(static_cast<int>(Deny::None), static_cast<int>(r.sm.resumeAfterSleep(r.now)));
+    TEST_ASSERT_FALSE(r.sm.armed());
+  }
+  {
+    Rig r(0, false);  // invalid stored configuration
+    r.run(100);
+    TEST_ASSERT_NOT_EQUAL(static_cast<int>(Deny::None), static_cast<int>(r.sm.resumeAfterSleep(r.now)));
+    TEST_ASSERT_FALSE(r.sm.armed());
+  }
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_parser_decodes_guide_example_frame);
@@ -665,5 +708,8 @@ int main(int, char**) {
   RUN_TEST(test_estop_latch_survives_a_reboot);
   RUN_TEST(test_config_change_ends_a_fill);
   RUN_TEST(test_millis_rollover_does_not_break_timers);
+  RUN_TEST(test_resume_after_sleep_arms_only_when_everything_is_healthy);
+  RUN_TEST(test_resume_after_sleep_never_clears_a_latch);
+  RUN_TEST(test_resume_after_sleep_refuses_unhealthy_inputs);
   return UNITY_END();
 }

@@ -225,6 +225,14 @@ bool ackHeldAtBoot() {
   return digitalRead(PIN_ACK_BUTTON) == LOW;
 }
 
+void prepareSleep() {
+  digitalWrite(PIN_BUZZER, LOW);
+  strip.clear();
+  strip.show();
+  digitalWrite(PIN_WS2812, LOW);
+  if (oledOk) oled.ssd1306_command(SSD1306_DISPLAYOFF);
+}
+
 void loop() {
   static uint32_t lastFast = 0, lastOled = 0;
   const uint32_t now = millis();

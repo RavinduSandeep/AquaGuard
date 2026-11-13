@@ -5,6 +5,8 @@
 #include "control.h"
 
 #include <driver/gpio.h>
+#include <driver/rtc_io.h>
+#include <esp_sleep.h>
 #include <esp_task_wdt.h>
 
 #include "app.h"
@@ -36,6 +38,27 @@ struct Debounced {
   }
 };
 
+#ifdef AQUAGUARD_SIMULATION
+// Bench-test build only: a pretend tank feeds real sensor frames into the
+// normal parser and validation, and the three safety inputs read healthy.
+// The valve pin is never driven in this build. Requires the lock.
+void simulateSensor(uint32_t now) {
+  static float percent = 60.0f;
+  static uint32_t last = 0;
+  if (now - last < 100) return;  // the real sensor sends about every 100 ms
+  last = now;
+  percent += app::safety.valveRequest() ? 0.03f : -0.005f;  // fills in ~3 min, drains in ~18
+  percent = constrain(percent, 0.0f, 100.0f);
+  const float cm = app::cfg.emptyDistanceCm - percent / 100.0f * (app::cfg.emptyDistanceCm - app::cfg.fullDistanceCm);
+  const uint16_t mm = static_cast<uint16_t>(cm * 10.0f + 0.5f);
+  const uint8_t hi = mm >> 8, lo = mm & 0xFF;
+  const uint8_t frame[4] = {0xFF, hi, lo, static_cast<uint8_t>(0xFF + hi + lo)};
+  for (uint8_t b : frame) {
+    if (app::parser.feed(b)) app::pipeline.onFrame(app::parser.distanceMm());
+  }
+}
+#endif
+
 Debounced floatIn{PIN_FLOAT_OK};
 Debounced estopIn{PIN_ESTOP_OK};
 Debounced k1In{PIN_K1_FEEDBACK};
@@ -55,21 +78,29 @@ void task(void*) {
     bool open;
     {
       app::Lock l;
+#ifdef AQUAGUARD_SIMULATION
+      simulateSensor(now);
+#else
       int budget = 256;  // bounded work per tick even under a byte flood
       while (budget-- > 0 && Serial1.available() > 0) {
         if (app::parser.feed(static_cast<uint8_t>(Serial1.read()))) {
           app::pipeline.onFrame(app::parser.distanceMm());
         }
       }
+#endif
       if (now - lastValidate >= app::cfg.validationIntervalMs) {
         lastValidate = now;
         app::pipeline.validate(now);
       }
 
       ag::SafetyInputs in;
+#ifdef AQUAGUARD_SIMULATION
+      in.floatHealthy = in.estopHealthy = in.k1Enabled = true;
+#else
       in.floatHealthy = floatIn.healthy;
       in.estopHealthy = estopIn.healthy;
       in.k1Enabled = k1In.healthy;
+#endif
       in.levelValid = !app::pipeline.isStale(now);
       in.levelPercent = app::pipeline.hasTrusted() ? app::pipeline.trustedPercent() : 0.0f;
       in.sensorCritical = app::pipeline.critical();
@@ -77,7 +108,12 @@ void task(void*) {
       app::safety.tick(now, in);
       open = app::safety.valveRequest();
     }
+#ifdef AQUAGUARD_SIMULATION
+    (void)open;  // the bench-test build never energises the valve output
+    digitalWrite(PIN_VALVE, VALVE_OFF_LEVEL);
+#else
     digitalWrite(PIN_VALVE, open ? VALVE_ON_LEVEL : VALVE_OFF_LEVEL);
+#endif
     esp_task_wdt_reset();
   }
 }
@@ -89,6 +125,29 @@ void holdValveClosed() {
   gpio_set_level(static_cast<gpio_num_t>(PIN_VALVE), VALVE_OFF_LEVEL);
   pinMode(PIN_VALVE, OUTPUT);
   digitalWrite(PIN_VALVE, VALVE_OFF_LEVEL);
+  // Release the pad hold left by a power-saving sleep, now that the output
+  // latch is at the off level.
+  gpio_hold_dis(static_cast<gpio_num_t>(PIN_VALVE));
+  gpio_hold_dis(static_cast<gpio_num_t>(PIN_BUZZER));
+  gpio_hold_dis(static_cast<gpio_num_t>(PIN_WS2812));
+}
+
+void deepSleep(uint64_t microseconds) {
+  app::Lock l;  // the control task cannot change the request while this is held
+  if (app::safety.valveRequest()) return;
+  digitalWrite(PIN_VALVE, VALVE_OFF_LEVEL);
+  // Keep the valve request, buzzer and pixel data lines at their off levels
+  // for the whole sleep (the 47k pulldown on the valve line is the backup).
+  gpio_hold_en(static_cast<gpio_num_t>(PIN_VALVE));
+  gpio_hold_en(static_cast<gpio_num_t>(PIN_BUZZER));
+  gpio_hold_en(static_cast<gpio_num_t>(PIN_WS2812));
+
+  // Wake on the timer, or at once when ACK is pressed (button to 0 V).
+  esp_sleep_enable_timer_wakeup(microseconds);
+  rtc_gpio_pullup_en(static_cast<gpio_num_t>(PIN_ACK_BUTTON));
+  rtc_gpio_pulldown_dis(static_cast<gpio_num_t>(PIN_ACK_BUTTON));
+  esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(PIN_ACK_BUTTON), 0);
+  esp_deep_sleep_start();
 }
 
 void begin() {

@@ -21,7 +21,7 @@ export function Dashboard({ live }: { live: Live }) {
   const { status, online, serverNow } = live;
   const current = levelIsCurrent(status, online);
   const level = status?.level;
-  const head = headline(status, online);
+  const head = headline(status, online, serverNow);
   const lastSeen = status?.updatedAt ? formatDuration((serverNow - status.updatedAt) / 1000) : null;
 
   return (
@@ -44,6 +44,9 @@ export function Dashboard({ live }: { live: Live }) {
           </View>
         </View>
         <Notice tone={head.tone} text={head.text} />
+        {status?.simulated ? (
+          <Notice tone="warn" text="Bench-test firmware: the level and inputs are simulated and the valve output is disabled" />
+        ) : null}
         {status && !online && lastSeen ? <Muted>Last report {lastSeen} ago. Local automatic control and the hardware interlock keep working without internet.</Muted> : null}
       </Card>
 

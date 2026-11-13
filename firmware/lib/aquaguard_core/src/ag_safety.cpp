@@ -327,6 +327,22 @@ Deny SafetyManager::requestClose(uint32_t nowMs) {
   return Deny::None;
 }
 
+Deny SafetyManager::resumeAfterSleep(uint32_t) {
+  if (lockout_) return Deny::Lockout;
+  if (faults_) return Deny::Disarmed;
+  if (!configValid_) return Deny::ConfigInvalid;
+  if (!cfg_.commissioned) return Deny::NotCommissioned;
+  if (!in_.estopHealthy) return Deny::EStopActive;
+  if (!in_.floatHealthy) return Deny::FloatLoopFault;
+  if (!in_.k1Enabled) return Deny::K1Disabled;
+  if (!in_.levelValid) return Deny::SensorStale;
+  if (!armed_) {
+    armed_ = true;
+    emit(Event::Armed);
+  }
+  return Deny::None;
+}
+
 Deny SafetyManager::acknowledge(uint32_t nowMs, bool local) {
   if (lockout_) return deny(Deny::Lockout);
   if (!local && (faults_ & kFaultEStop)) return deny(Deny::LocalAckRequired);

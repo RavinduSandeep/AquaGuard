@@ -5,6 +5,8 @@
 
 #include <ESPAsyncWebServer.h>
 #include <Update.h>
+
+#include "power.h"
 #include <WiFi.h>
 
 #include "app.h"
@@ -34,6 +36,7 @@ bool otaFailed = false;
 constexpr size_t kMaxBody = 4096;
 
 void sendJson(AsyncWebServerRequest* req, int code, const JsonDocument& doc) {
+  power::noteActivity();  // someone is using the dashboard
   AsyncResponseStream* res = req->beginResponseStream("application/json");
   res->setCode(code);
   res->addHeader("Cache-Control", "no-store");
@@ -69,6 +72,7 @@ bool authorised(AsyncWebServerRequest* req) {
   }
   if (!storage::constantTimeEquals(req->header("X-Auth-Token"), sessionToken)) return false;
   sessionSeenMs = millis();
+  power::noteActivity();
   return true;
 }
 
@@ -169,6 +173,13 @@ void handleNetwork(AsyncWebServerRequest* req, JsonObjectConst body) {
   if (strlen(body["wifiPass"] | "")) n.wifiPass = body["wifiPass"].as<const char*>();
   if (body["cloudEnabled"].is<bool>()) n.cloudEnabled = body["cloudEnabled"];
   if (body["remoteControl"].is<bool>()) n.remoteControl = body["remoteControl"];
+  if (body["sleepEnabled"].is<bool>()) n.sleepEnabled = body["sleepEnabled"];
+  if (!body["sleepMinutes"].isNull()) {
+    const int minutes = body["sleepMinutes"].is<const char*>() ? atoi(body["sleepMinutes"].as<const char*>())
+                                                               : body["sleepMinutes"].as<int>();
+    if (minutes < 1 || minutes > 60) return sendResult(req, "SLEEP_MINUTES_1_TO_60", 400);
+    n.sleepMinutes = static_cast<uint8_t>(minutes);
+  }
   if (body["fbDbUrl"].is<const char*>()) n.fbDbUrl = body["fbDbUrl"].as<const char*>();
   if (body["fbEmail"].is<const char*>()) n.fbEmail = body["fbEmail"].as<const char*>();
   if (strlen(body["fbApiKey"] | "")) n.fbApiKey = body["fbApiKey"].as<const char*>();
@@ -276,6 +287,8 @@ void routes() {
     doc["hasWifiPass"] = !n.wifiPass.isEmpty();
     doc["cloudEnabled"] = n.cloudEnabled;
     doc["remoteControl"] = n.remoteControl;
+    doc["sleepEnabled"] = n.sleepEnabled;
+    doc["sleepMinutes"] = n.sleepMinutes;
     doc["fbDbUrl"] = n.fbDbUrl;
     doc["fbEmail"] = n.fbEmail;
     doc["hasFbApiKey"] = !n.fbApiKey.isEmpty();
@@ -353,6 +366,7 @@ void loop() {
 
   if (now - lastPush >= 1000 && live.count() > 0) {
     lastPush = now;
+    power::noteActivity();  // the dashboard is open in a browser
     JsonDocument doc;
     app::fillStatus(doc.to<JsonObject>());
     String json;

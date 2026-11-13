@@ -6,7 +6,7 @@ It shows the tank from anywhere through Firebase and is where you enter data.
 Version: see [`../versions.json`](../versions.json) (`mobile`). The app's About
 tab shows the app version, the unit's firmware version and the data schema of both.
 
-> **Status:** type-checks, passes its 13 unit tests and bundles for Android, iOS
+> **Status:** type-checks, passes its 14 unit tests and bundles for Android, iOS
 > and web. The screens were checked in a browser with sample data. It has not
 > yet been run against a real Firebase project or a real unit.
 

@@ -37,6 +37,11 @@ export type DeviceStatus = {
   warnings?: string[];
   lastDeny?: string;
   wifi?: { connected: boolean; rssi: number };
+  // Present only when power saving is switched on at the unit. sleepUntil
+  // (epoch seconds) is set in the last report before a sleep.
+  power?: { sleepMinutes: number; sleepUntil?: number };
+  // True only for the firmware's bench-test build (pretend sensor and inputs).
+  simulated?: boolean;
 };
 
 export type DeviceConfig = Record<string, string | number | boolean>;
@@ -63,6 +68,15 @@ export function isOnline(status: DeviceStatus | null, serverNowMs: number): bool
   return serverNowMs - status.updatedAt < ONLINE_WINDOW_MS;
 }
 
+/** Grace after the announced wake time before the unit counts as offline. */
+export const WAKE_GRACE_MS = 120_000;
+
+/** The unit said it was going to sleep and its wake time has not passed. */
+export function isSleeping(status: DeviceStatus | null, serverNowMs: number): boolean {
+  const until = status?.power?.sleepUntil;
+  return !!until && !isOnline(status, serverNowMs) && serverNowMs < until * 1000 + WAKE_GRACE_MS;
+}
+
 /** A level may only be shown as current when the unit is online and trusts it. */
 export function levelIsCurrent(status: DeviceStatus | null, online: boolean): boolean {
   return !!status && online && !!status.level?.valid && status.level.percent !== undefined;
@@ -70,8 +84,16 @@ export function levelIsCurrent(status: DeviceStatus | null, online: boolean): bo
 
 export type Tone = 'ok' | 'info' | 'warn' | 'bad' | 'muted';
 
-export function headline(status: DeviceStatus | null, online: boolean): { tone: Tone; text: string } {
+export function headline(
+  status: DeviceStatus | null,
+  online: boolean,
+  serverNowMs?: number,
+): { tone: Tone; text: string } {
   if (!status) return { tone: 'muted', text: 'Waiting for the unit to report' };
+  if (!online && serverNowMs !== undefined && isSleeping(status, serverNowMs)) {
+    const minutes = Math.max(1, Math.ceil((status.power!.sleepUntil! * 1000 - serverNowMs) / 60_000));
+    return { tone: 'info', text: `Power saving: asleep, next report in about ${minutes} min. Showing the last report` };
+  }
   if (!online) return { tone: 'muted', text: 'Unit offline: showing the last report' };
   const faults = status.faults ?? [];
   if (faults.length) return { tone: 'bad', text: faults.map(humanize).join(' · ') };

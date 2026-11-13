@@ -12,8 +12,8 @@ from anywhere.
 
 | Program | Version | Where it lives | Status |
 |---|---|---|---|
-| Firmware (ESP32-S3) | **0.1.0** | [`firmware/`](firmware/) | Compiles; 38 logic tests pass; not yet run on hardware |
-| Phone app (Android, iOS, web) | **0.2.0** | [`mobile/`](mobile/) | Type-checks; 13 tests pass; bundles for all three; demo mode viewable in a browser; not yet run against a live unit |
+| Firmware (ESP32-S3) | **0.3.0** | [`firmware/`](firmware/) | Flashed to a bare ESP32-S3 N16R8 and boots (setup Wi-Fi comes up); 41 logic tests pass; not yet run with the sensor, valve or interlock wired |
+| Phone app (Android, iOS, web) | **0.4.0** | [`mobile/`](mobile/) | Type-checks; 14 tests pass; bundles for all three; demo mode viewable in a browser; not yet run against a live unit |
 | Data schema (unit ↔ cloud ↔ app) | **1** | [`docs/firebase-setup.md`](docs/firebase-setup.md) | |
 | Project guide | 13 Nov 2026 | [`documents/`](documents/) | Hardware design, 21 pages |
 
@@ -105,7 +105,12 @@ Alternatives considered and the reasons are in
 - Hardware validation of the firmware (sensor frames, interlocks, valve timing).
 - The Firebase rules test (`firebase/rules.test.mjs`) has not been run; it
   needs Java for the local emulator.
-- The app has not been run against a live Firebase project.
+- The Firebase project is set up (rules published, sign-in enabled) and the
+  app loads its configuration, but no one has signed in and no unit has
+  reported to it yet.
+- Power-saving sleep and firmware update over Wi-Fi have not been exercised
+  on a board.
+- No supply schedule or water-board outage notices yet (researched, not built).
 - Root certificates for Firebase are embedded in the firmware; the earliest
   expires in January 2028 and they will need refreshing in a firmware update
   before then.
@@ -135,7 +140,10 @@ view. Details and emulator options are in [`mobile/README.md`](mobile/README.md)
 
 ## Latest update
 
-**13 November 2026: phone app 0.2.0.** Added a demo mode: a simulated tank that
-lets the whole app be viewed and operated in a browser or on a phone with no
-Firebase project and no hardware. Firmware is unchanged at 0.1.0. Details in
+**13 November 2026: firmware 0.3.0, phone app 0.4.0.** Added a bench-test
+firmware build (`aquaguard_s3_sim`) so the dashboard, Firebase and the app can
+be tried on a bare ESP32-S3 with nothing wired: it simulates the tank level
+and healthy inputs and never drives the valve output. The app and dashboard
+label it clearly. It must not be installed on a wired unit. The same day,
+0.2.0 added the optional power-saving sleep. Details in
 [`CHANGELOG.md`](CHANGELOG.md).

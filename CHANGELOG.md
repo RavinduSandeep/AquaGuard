@@ -5,6 +5,49 @@ Each program has its own version number (see `versions.json`). Versions follow
 changes that break compatibility. The data schema number goes up whenever the
 shape of the data shared by the unit, Firebase and the app changes.
 
+## 2026-11-13 (bench test)
+
+### Firmware 0.3.0
+
+- New build `aquaguard_s3_sim` for a bare board: a simulated tank and healthy
+  inputs feed the real parser, validation and control logic; the valve output
+  is never driven; status carries `simulated: true`. The normal build is
+  unchanged in behaviour.
+- The bench-test build was flashed to a bare ESP32-S3 and starts.
+
+### Phone app 0.4.0
+
+- Shows a warning on the Tank tab when the unit runs bench-test firmware.
+
+## 2026-11-13 (power saving)
+
+### Firmware 0.2.0
+
+- Optional power saving (off by default, switched on only at the unit): deep
+  sleep for 1 to 60 minutes between checks while armed, idle, healthy and at
+  least 5 % above the start threshold. Wakes on the timer or the ACK button;
+  stays awake while the dashboard is in use so firmware can be updated.
+- The valve request, buzzer and pixel lines are held at their off levels
+  during sleep.
+- A wake from such a sleep re-arms only if the unit went to sleep armed and
+  everything is healthy; it never clears a latched fault. Any other restart
+  still boots disarmed. Three new logic tests (41 in total).
+- Status reports the sleep period and the next wake time.
+- Startup log moved to the native USB port.
+- Flashed to a bare ESP32-S3 DevKitC-1 N16R8: it boots, detects 16 MB flash
+  and 8 MB PSRAM, and starts its setup access point. Nothing that needs the
+  sensor, valve, interlock, display or a sleep cycle has been exercised.
+
+### Phone app 0.3.0
+
+- A unit in power saving is shown as asleep with the time to its next report,
+  and as offline if it misses that. The level is still labelled as the last
+  report. 14 tests.
+
+### Project
+
+- Firebase project created and configured (rules, e-mail sign-in, web app).
+
 ## 2026-11-13 (later)
 
 ### Phone app 0.2.0

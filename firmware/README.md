@@ -9,10 +9,11 @@ Version: see [`../versions.json`](../versions.json) (`firmware`). The running
 version is shown on the OLED at start-up, on the local dashboard, in
 `/api/status` (`fw`) and in the phone app's About tab.
 
-> **Status: compiled and unit-tested, not yet run on hardware.** The firmware
-> builds for the ESP32-S3 and its control logic passes 38 automated tests on a
-> PC. It has not been flashed to a board or tested with the real sensor, relay,
-> float, emergency stop or valve. Follow guide section 16: keep the 12 V test
+> **Status: boots on a bare board, not yet run with the hardware wired.** The
+> control logic passes 41 automated tests on a PC. The firmware was flashed to
+> an ESP32-S3 DevKitC-1 N16R8 with nothing connected: it starts, reports
+> 16 MB flash and 8 MB PSRAM, and brings up its setup Wi-Fi. It has not been
+> tested with the real sensor, relay, float, emergency stop or valve. Follow guide section 16: keep the 12 V test
 > lamp in place of the valve until boot, stale-data and interlock checks pass.
 
 ## Build, test, flash
@@ -21,11 +22,17 @@ Install [PlatformIO](https://platformio.org/install) (VS Code extension, or `pip
 
 ```bash
 cd firmware
-pio test -e native               # 38 logic tests on your computer, no board needed
+pio test -e native               # 41 logic tests on your computer, no board needed
 pio run -e aquaguard_s3          # compile
-pio run -e aquaguard_s3 -t upload    # flash over the USB-to-UART port
-pio device monitor               # serial log at 115200 baud
+pio run -e aquaguard_s3 -t upload    # flash over USB
+pio device monitor               # startup log at 115200 baud
 ```
+
+Use the board's native USB port (marked **USB**): it takes uploads and carries
+the startup log. A new board, or one running other firmware, may not accept
+the first upload on its own. Put it in download mode by hand: hold **BOOT**,
+press and release **RESET**, then release **BOOT**. After AquaGuard is
+installed, later uploads over that port need no buttons.
 
 The first build downloads the toolchain (about 1 GB). Toolchain and library
 versions are pinned in `platformio.ini`; keep them fixed for a commissioned
@@ -36,7 +43,47 @@ size (expect 16 MB and about 8 MB), the reset reason and the Device ID.
 
 Later updates can be uploaded from the local dashboard (**Firmware update**)
 using `.pio/build/aquaguard_s3/firmware.bin`. The unit disarms and closes the
-valve before accepting the file and restarts disarmed.
+valve before accepting the file and restarts disarmed. The flash holds two
+firmware slots, so an upload that fails part-way leaves the running version
+in place.
+
+## Bench-test build (bare board, nothing wired)
+
+```bash
+pio run -e aquaguard_s3_sim -t upload
+```
+
+This separate build lets you try the dashboard, Firebase and the phone app
+with only the ESP32-S3 on a USB cable. A pretend tank (starts at 60 %, drains
+in about 18 minutes, fills in about 3) sends sensor frames through the real
+parser, validation and control logic; the float, emergency stop and K1 inputs
+read healthy; and **the valve output is never driven**. The dashboard and the
+app show a "bench-test firmware" warning, and `status.simulated` is `true`.
+
+You still set it up like a real unit: Wi-Fi, mark it commissioned in
+Settings, then **Acknowledge** on the dashboard to arm (there is no ACK
+button on a bare board). **Never install this build on a wired unit**: it
+ignores the real safety inputs. Flash `aquaguard_s3` before wiring anything.
+
+## Power saving (optional, off by default)
+
+**Network and remote access → Power saving** on the local dashboard makes the
+unit deep sleep between checks. It can only be switched on at the unit.
+
+- It sleeps only when armed, in AUTO, idle, with no fault or warning, a valid
+  level at least 5 % above the start threshold, and nobody using the dashboard.
+- It wakes after the set time (1 to 60 minutes, default 10), stays awake for
+  at least 90 seconds to measure and report, and sleeps again if still idle.
+- **ACK wakes it at once** and keeps it awake for 5 minutes; an open dashboard
+  keeps it awake for as long as it is open. Do this before a firmware update.
+- While asleep it does not measure, fill, show anything, or answer the
+  dashboard or the phone app. A fill can therefore start up to one sleep
+  period late, and a request from the app is not acted on.
+- The valve request is held LOW during sleep. The float switch and emergency
+  stop still cut valve power through relay K1 without the processor.
+- The saving is small on this hardware (the processor is a fraction of a watt
+  next to the 12 V supply, relay, sensor and RS485 parts), so leave it off
+  unless you have a reason such as battery backup.
 
 ## First start
 
@@ -60,6 +107,7 @@ To get back to the setup access point later, hold the ACK button while powering 
 | Condition | Result |
 |---|---|
 | Boot, reset, firmware update | Valve request LOW first; unit stays DISARMED until acknowledged |
+| Wake from a power-saving sleep | Valve request LOW first; re-arms only if it went to sleep armed, no fault is latched and every input and the level are healthy within 20 s; otherwise DISARMED |
 | Not commissioned, or stored settings corrupt | Cannot arm; valve stays closed |
 | AUTO and level ≤ 35 % | Opens, if armed and every input is healthy |
 | Filling and level ≥ 90 % | Closes; stays closed until 35 % again |
@@ -97,6 +145,7 @@ The numbers above are the defaults from guide section 13 and are editable in Set
 | `src/storage.cpp` | Settings (JSON + CRC) and network settings in NVS; password hashing |
 | `src/ui.cpp` | OLED, eight WS2812 pixels, buzzer patterns, ACK button |
 | `src/webapi.cpp` | Wi-Fi, setup access point, REST + SSE API, OTA upload |
+| `src/power.cpp` | Optional deep sleep between checks, and re-arming after such a sleep |
 | `src/cloud.cpp` | Optional Firebase sync task (status, history, events, commands) |
 | `web/index.html` | Local dashboard, embedded in the firmware image |
 | `test/test_core/` | Parser vectors, calibration maths, filters, state transitions, interlock denial, timers |
@@ -145,6 +194,12 @@ open to anyone on your home network; keep the unit off guest networks.
   high-high backstop.
 - **`restartArmed` is fixed to false** (always acknowledge after a restart) and
   `valveActiveHigh` is a constant in `pins.h`, matching the specified hardware.
+- **Optional power-saving sleep added.** The guide has no sleep mode and says
+  every restart boots disarmed. A wake from a sleep the firmware started
+  itself while armed and idle is the one exception: it re-arms without an
+  acknowledgement, and only when nothing is latched and all inputs are
+  healthy. The option is off by default.
+- **Startup log on the native USB port** (`ARDUINO_USB_CDC_ON_BOOT`), not UART0.
 - **No optional smoothing stage** after the median and rate check.
 
 ## Before trusting it with water

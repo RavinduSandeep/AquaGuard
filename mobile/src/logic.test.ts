@@ -8,6 +8,7 @@ import {
   draftFromConfig,
   formatDuration,
   headline,
+  isSleeping,
   humanize,
   isOnline,
   levelIsCurrent,
@@ -73,6 +74,18 @@ test('a level is never shown as current when offline or stale', () => {
   assert.equal(levelIsCurrent(baseStatus, false), false);
   assert.equal(levelIsCurrent({ ...baseStatus, level: { valid: false, percent: 75 } }, true), false);
   assert.equal(levelIsCurrent({ ...baseStatus, level: undefined }, true), false);
+});
+
+test('a unit that announced a sleep is shown as asleep, then as offline', () => {
+  const t0 = 1_800_000_000_000;
+  const asleep = { ...baseStatus, updatedAt: t0, power: { sleepMinutes: 10, sleepUntil: t0 / 1000 + 600 } };
+  assert.equal(isSleeping(asleep, t0 + 5_000), false); // still reporting
+  assert.equal(isSleeping(asleep, t0 + 300_000), true);
+  assert.match(headline(asleep, false, t0 + 300_000).text, /Power saving/);
+  assert.equal(levelIsCurrent(asleep, false), false); // the level is still not shown as current
+  assert.equal(isSleeping(asleep, t0 + 600_000 + 121_000), false); // missed its wake: offline
+  assert.equal(headline(asleep, false, t0 + 600_000 + 121_000).tone, 'muted');
+  assert.equal(isSleeping({ ...baseStatus, updatedAt: t0 }, t0 + 300_000), false);
 });
 
 test('headline puts faults first and tolerates missing arrays', () => {

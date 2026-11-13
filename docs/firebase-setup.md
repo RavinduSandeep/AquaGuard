@@ -151,6 +151,13 @@ Everything for one unit lives under `/devices/<deviceId>/`:
 | `logbook/<pushId>` | App | Maintenance entries |
 | `record` | App | Installation record (guide section 18) |
 
+`status.simulated` is `true` only for the bench-test firmware build.
+
+`status.power` is present only when power saving is on at the unit:
+`{ sleepMinutes, sleepUntil }`, where `sleepUntil` (epoch seconds) is set in
+the last report before a sleep. It is an optional addition, so the schema
+number is unchanged.
+
 `status.schema` carries the data schema version (currently 1). The app warns
 on its About tab when the unit and the app disagree.
 

@@ -9,6 +9,7 @@
 #include "app.h"
 #include "cloud.h"
 #include "control.h"
+#include "power.h"
 #include "storage.h"
 #include "ui.h"
 #include "version.h"
@@ -23,11 +24,17 @@ void setup() {
                 static_cast<unsigned>(ESP.getFlashChipSize() >> 20),
                 static_cast<unsigned>(ESP.getPsramSize() >> 10), static_cast<int>(esp_reset_reason()));
 
+#ifdef AQUAGUARD_SIMULATION
+  Serial.println("BENCH-TEST BUILD: simulated sensor and inputs, valve output disabled. Not for a wired unit.");
+#endif
   app::begin();
+  power::begin();
   if (!app::cfgValid) Serial.printf("Stored settings rejected: %s. Staying disarmed.\n", app::cfgError);
   Serial.printf("Device ID %s\n", app::net.deviceId.c_str());
 
-  const bool forceSetupAp = ui::ackHeldAtBoot();
+  // ACK also wakes the unit from a power-saving sleep; that press must not
+  // be read as "start the setup access point".
+  const bool forceSetupAp = !power::wokeFromSleep() && ui::ackHeldAtBoot();
   ui::begin();
   control::begin();
   webapi::begin(forceSetupAp);
@@ -50,5 +57,6 @@ void loop() {
     storage::saveFaults(faults);
     stored = faults;
   }
+  power::loop();  // may start a power-saving sleep; does not return if it does
   delay(5);
 }

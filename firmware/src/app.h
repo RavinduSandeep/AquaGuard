@@ -17,6 +17,8 @@ struct NetSettings {
   bool cloudEnabled = false;
   bool remoteControl = false;    // only changeable from the local dashboard
   String fbApiKey, fbDbUrl, fbEmail, fbPassword;
+  bool sleepEnabled = false;     // power saving; only changeable from the local dashboard
+  uint8_t sleepMinutes = 10;     // 1..60
 };
 
 struct LogEntry {
@@ -51,6 +53,7 @@ extern ag::SafetyInputs inputs;   // last values fed to the safety manager
 extern NetSettings net;
 extern volatile bool setupApActive;
 extern volatile bool otaInProgress;
+extern volatile uint32_t sleepUntilEpoch;  // announced wake time, 0 = not about to sleep
 
 void begin();                     // create the lock, load storage, start safety
 uint32_t epochNow();              // 0 until NTP has set the clock

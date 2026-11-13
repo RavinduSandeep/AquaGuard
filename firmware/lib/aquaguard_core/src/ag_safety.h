@@ -112,6 +112,10 @@ class SafetyManager {
   Deny requestOpen(uint32_t nowMs);
   Deny requestClose(uint32_t nowMs);
   Deny acknowledge(uint32_t nowMs, bool local);
+  // Re-arm after a deliberate power-saving sleep that was entered while armed.
+  // Unlike acknowledge() it never clears a latch: any fault, an unhealthy
+  // input or a missing level leaves the unit disarmed.
+  Deny resumeAfterSleep(uint32_t nowMs);
   void mute() { muted_ = true; }
 
   // The one output that drives the valve.
