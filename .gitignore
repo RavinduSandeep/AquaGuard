@@ -1,2 +1,6 @@
 .DS_Store
 .work/
+node_modules/
+.firebase/
+firebase-debug.log
+database-debug.log

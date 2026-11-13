@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b3a5b">
+<title>AquaGuard</title>
+<style>
+  :root { --bg:#f2f5f8; --card:#fff; --ink:#12222f; --muted:#5b6b78; --line:#d9e1e8; --water:#1d8fd1;
+          --ok:#1c7c3c; --warn:#a85d00; --bad:#b3211c; --accent:#0b3a5b; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0d151c; --card:#16212b; --ink:#e7eef4; --muted:#93a4b3; --line:#2a3946; --water:#3aa6e6;
+            --ok:#5fcf85; --warn:#f0a84a; --bad:#ff7b72; --accent:#8cc8f0; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  header { padding:14px 16px; display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:20px; }
+  header small, .muted { color:var(--muted); }
+  main { max-width:760px; margin:0 auto; padding:0 16px 40px; display:grid; gap:14px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  h2 { margin:0 0 10px; font-size:15px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  .hero { display:flex; gap:18px; align-items:center; }
+  .tank { width:86px; height:150px; border:3px solid var(--ink); border-radius:10px; position:relative; overflow:hidden; flex:none; }
+  .tank i { position:absolute; left:0; right:0; bottom:0; background:var(--water); transition:height .6s; }
+  .tank.stale i { background:var(--muted); opacity:.5; }
+  .pct { font-size:54px; font-weight:700; line-height:1; font-variant-numeric:tabular-nums; }
+  .banner { border-radius:8px; padding:10px 12px; font-weight:600; margin-top:10px; }
+  .banner.bad { background:var(--bad); color:#fff; }
+  .banner.warn { border:2px solid var(--warn); color:var(--warn); }
+  .banner.ok { border:2px solid var(--ok); color:var(--ok); }
+  dl { display:grid; grid-template-columns:1fr 1fr; gap:6px 14px; margin:12px 0 0; }
+  dt { color:var(--muted); font-size:13px; } dd { margin:0; font-weight:600; font-variant-numeric:tabular-nums; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  button { font:inherit; font-weight:600; padding:10px 14px; border-radius:8px; border:1px solid var(--line);
+           background:var(--card); color:var(--ink); cursor:pointer; min-height:44px; }
+  button.primary { background:var(--accent); color:var(--bg); border-color:var(--accent); }
+  button.stop { background:var(--bad); color:#fff; border-color:var(--bad); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  label { display:block; font-size:13px; color:var(--muted); margin-top:10px; }
+  input, select { font:inherit; width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--line);
+                  background:var(--bg); color:var(--ink); min-height:42px; }
+  input[type=checkbox] { width:auto; min-height:0; margin-right:8px; }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:0 14px; }
+  #msg { position:sticky; top:0; z-index:2; padding:10px 16px; font-weight:600; display:none; }
+  #msg.show { display:block; } #msg.err { background:var(--bad); color:#fff; } #msg.good { background:var(--ok); color:#fff; }
+  table { width:100%; border-collapse:collapse; font-size:14px; } td { padding:5px 4px; border-top:1px solid var(--line); vertical-align:top; }
+  details summary { cursor:pointer; font-weight:600; }
+  pre { overflow:auto; font-size:12px; margin:8px 0 0; }
+</style>
+</head>
+<body>
+<div id="msg" role="status"></div>
+<header>
+  <h1 id="name">AquaGuard</h1>
+  <small><span id="fw"></span> · <span id="devid"></span> · <span id="link">connecting…</span></small>
+</header>
+<main>
+  <section>
+    <div class="hero">
+      <div class="tank" id="tank"><i id="water" style="height:0"></i></div>
+      <div>
+        <div class="pct" id="pct">--%</div>
+        <div id="litres" class="muted">&nbsp;</div>
+        <div id="fresh" class="muted">&nbsp;</div>
+      </div>
+    </div>
+    <div id="banners"></div>
+    <dl>
+      <dt>Mode</dt><dd id="mode">–</dd>
+      <dt>State</dt><dd id="phase">–</dd>
+      <dt>Valve (commanded)</dt><dd id="valve">–</dd>
+      <dt>Open blocked by</dt><dd id="blocker">–</dd>
+      <dt>Float loop</dt><dd id="float">–</dd>
+      <dt>Emergency stop</dt><dd id="estop">–</dd>
+      <dt>Relay K1</dt><dd id="k1">–</dd>
+      <dt>Distance</dt><dd id="dist">–</dd>
+    </dl>
+    <p class="muted" style="margin:10px 0 0;font-size:13px">The valve line shows the command only. Without a flow sensor the unit cannot prove the valve physically opened or sealed.</p>
+  </section>
+
+  <section id="setupCard" hidden>
+    <h2>First-time setup</h2>
+    <p>Choose an administrator password (8 characters or more). It protects controls, settings, calibration and updates.</p>
+    <label>New password<input id="setupPw" type="password" autocomplete="new-password"></label>
+    <div class="row" style="margin-top:10px"><button class="primary" id="setupBtn">Save password</button></div>
+  </section>
+
+  <section id="loginCard" hidden>
+    <h2>Sign in to control</h2>
+    <label>Administrator password<input id="loginPw" type="password" autocomplete="current-password"></label>
+    <div class="row" style="margin-top:10px"><button class="primary" id="loginBtn">Sign in</button></div>
+  </section>
+
+  <div id="admin" hidden style="display:grid;gap:14px">
+    <section>
+      <h2>Controls</h2>
+      <div class="row">
+        <button data-mode="AUTO">Auto</button>
+        <button data-mode="MANUAL">Manual</button>
+        <button data-mode="MAINTENANCE">Maintenance</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="stop" data-post="/api/valve/close">Close valve</button>
+        <button data-post="/api/valve/open">Open (time limited)</button>
+        <button class="primary" data-post="/api/fault/ack">Acknowledge / arm</button>
+        <button data-post="/api/buzzer/mute">Mute buzzer</button>
+      </div>
+      <p class="muted" style="font-size:13px;margin-bottom:0">Open works in Manual or Maintenance only and keeps every protection active. Muting never clears a fault.</p>
+    </section>
+
+    <section>
+      <h2>Calibration</h2>
+      <p class="muted" style="margin-top:0">Close the service isolation valve first. Capture uses the median of 21 settled readings. Any capture clears "commissioned" until you confirm it again in Settings.</p>
+      <div class="row">
+        <button data-post="/api/calibrate/empty">Capture EMPTY reference</button>
+        <button data-post="/api/calibrate/full">Capture FULL reference</button>
+      </div>
+      <div id="calInfo" class="muted" style="margin-top:8px"></div>
+    </section>
+
+    <section>
+      <h2>Settings</h2>
+      <form id="cfgForm"><div class="grid2" id="cfgFields"></div>
+        <div class="row" style="margin-top:12px"><button class="primary">Save settings</button></div>
+      </form>
+    </section>
+
+    <section>
+      <h2>Network and remote access</h2>
+      <form id="netForm">
+        <div class="grid2">
+          <label>Wi-Fi name<input name="wifiSsid"></label>
+          <label>Wi-Fi password <span id="hasWifi"></span><input name="wifiPass" type="password" placeholder="unchanged" autocomplete="off"></label>
+          <label>Firebase database URL<input name="fbDbUrl" placeholder="https://…firebasedatabase.app"></label>
+          <label>Firebase web API key <span id="hasKey"></span><input name="fbApiKey" type="password" placeholder="unchanged" autocomplete="off"></label>
+          <label>Device account e-mail<input name="fbEmail" type="email"></label>
+          <label>Device account password <span id="hasFbPw"></span><input name="fbPassword" type="password" placeholder="unchanged" autocomplete="off"></label>
+          <label>New administrator password<input name="newAdminPassword" type="password" placeholder="unchanged" autocomplete="new-password"></label>
+        </div>
+        <label><input type="checkbox" name="cloudEnabled">Send data to Firebase for the phone app</label>
+        <label><input type="checkbox" name="remoteControl">Allow the phone app to change mode, open, acknowledge and edit settings (Close and Mute always work)</label>
+        <div class="row" style="margin-top:12px"><button class="primary">Save and restart</button></div>
+      </form>
+    </section>
+
+    <section>
+      <h2>Firmware update</h2>
+      <p class="muted" style="margin-top:0">The unit disarms and closes the valve before accepting the file, then restarts disarmed.</p>
+      <input type="file" id="otaFile" accept=".bin">
+      <div class="row" style="margin-top:10px"><button id="otaBtn">Upload firmware.bin</button></div>
+    </section>
+  </div>
+
+  <section>
+    <h2>History</h2>
+    <table id="events"></table>
+  </section>
+
+  <section>
+    <details id="diagBox"><summary>Diagnostics</summary><pre id="diag"></pre></details>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  let token = sessionStorage.getItem('agToken') || '';
+  let status = null;
+
+  function say(text, good) {
+    const m = $('msg');
+    m.textContent = text;
+    m.className = 'show ' + (good ? 'good' : 'err');
+    clearTimeout(say.t);
+    say.t = setTimeout(() => (m.className = ''), 5000);
+  }
+  const pretty = (s) => String(s || '').replace(/_/g, ' ').toLowerCase();
+
+  async function api(path, body, raw) {
+    const opt = { headers: {} };
+    if (token) opt.headers['X-Auth-Token'] = token;
+    if (body !== undefined) {
+      opt.method = 'POST';
+      if (raw) opt.body = raw;
+      else if (body !== null) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+    }
+    const res = await fetch(path, opt);
+    let data = {};
+    try { data = await res.json(); } catch (e) {}
+    if (res.status === 401 && path !== '/api/login') { token = ''; sessionStorage.removeItem('agToken'); gate(); }
+    return { ok: res.ok, data };
+  }
+  async function post(path, body) {
+    const r = await api(path, body === undefined ? null : body);
+    if (r.ok) say('Done', true); else say('Refused: ' + pretty(r.data.reason || 'error'));
+    refresh();
+    return r;
+  }
+
+  function gate() {
+    const needSetup = status && status.setupRequired;
+    $('setupCard').hidden = !needSetup;
+    $('loginCard').hidden = needSetup || !!token;
+    $('admin').hidden = !token;
+    if (token && !gate.loaded) { gate.loaded = true; loadConfig(); loadNetwork(); }
+    if (!token) gate.loaded = false;
+  }
+
+  function banner(cls, text) {
+    const d = document.createElement('div');
+    d.className = 'banner ' + cls;
+    d.textContent = text;
+    $('banners').appendChild(d);
+  }
+
+  function render(s) {
+    status = s;
+    $('name').textContent = s.tankName;
+    $('fw').textContent = 'firmware ' + s.fw;
+    $('devid').textContent = s.deviceId;
+    const lv = s.level || {};
+    const known = lv.percent !== undefined;
+    $('pct').textContent = known && lv.valid ? Math.round(lv.percent) + '%' : '--%';
+    $('water').style.height = (known ? lv.percent : 0) + '%';
+    $('tank').className = 'tank' + (lv.valid ? '' : ' stale');
+    $('litres').textContent = known && lv.valid ? 'about ' + lv.litres + ' L (estimate)' : 'level unknown';
+    $('fresh').textContent = known ? (lv.valid ? 'reading ' + (lv.ageMs / 1000).toFixed(1) + ' s old' : 'STALE: last reading ' + Math.round(lv.ageMs / 1000) + ' s ago') : 'no trusted reading yet';
+    $('dist').textContent = known ? lv.distanceCm + ' cm' : '–';
+    $('mode').textContent = s.mode;
+    $('phase').textContent = pretty(s.phase);
+    $('valve').textContent = s.valve.commanded ? 'OPEN, ' + s.valve.fillRuntimeS + ' s' : 'CLOSED';
+    $('blocker').textContent = s.valve.openBlocker === 'NONE' ? 'nothing' : pretty(s.valve.openBlocker);
+    $('float').textContent = s.inputs.floatHealthy ? 'healthy' : 'HIGH LEVEL or loop open';
+    $('estop').textContent = s.inputs.estopHealthy ? 'healthy' : 'PRESSED or wire open';
+    $('k1').textContent = s.inputs.k1Enabled ? 'energised' : 'dropped out';
+    $('banners').textContent = '';
+    (s.faults || []).forEach((f) => banner('bad', 'FAULT: ' + f.replace(/_/g, ' ')));
+    (s.warnings || []).forEach((w) => banner('warn', 'Warning: ' + pretty(w)));
+    if (!s.faults.length && !s.armed) banner('warn', 'DISARMED: acknowledge to arm automatic filling');
+    if (!s.faults.length && s.armed && !s.warnings.length) banner('ok', s.valve.commanded ? 'Filling (commanded)' : 'Monitoring');
+    gate();
+  }
+
+  async function refresh() {
+    try {
+      const r = await api('/api/status');
+      if (r.ok) render(r.data);
+      const ev = await api('/api/events');
+      if (ev.ok) renderEvents(ev.data);
+      if ($('diagBox').open || token) {
+        const d = await api('/api/diag');
+        if (d.ok) {
+          $('diag').textContent = JSON.stringify(d.data, null, 1);
+          $('calInfo').textContent = d.data.sensor.calibrationReady
+            ? 'Settled median now: ' + d.data.sensor.calibrationMedianCm.toFixed(1) + ' cm'
+            : 'Readings not settled yet (need 21 in-range readings within 2 cm).';
+        }
+      }
+    } catch (e) { $('link').textContent = 'offline'; }
+  }
+
+  function renderEvents(list) {
+    const t = $('events');
+    t.textContent = '';
+    list.slice(0, 30).forEach((e) => {
+      const tr = t.insertRow();
+      tr.insertCell().textContent = e.ts ? new Date(e.ts * 1000).toLocaleString() : 'up ' + e.uptimeS + ' s';
+      tr.insertCell().textContent = pretty(e.event) + (e.detail ? ': ' + pretty(e.detail) : '');
+    });
+  }
+
+  const BOOLS = ['commissioned', 'autoRetry', 'buzzerEnabled'];
+  const SKIP = ['schema', 'revision', 'valid'];
+  async function loadConfig() {
+    const r = await api('/api/config');
+    if (!r.ok) return;
+    const box = $('cfgFields');
+    box.textContent = '';
+    Object.keys(r.data).filter((k) => !SKIP.includes(k)).forEach((k) => {
+      const label = document.createElement('label');
+      const input = document.createElement('input');
+      input.name = k;
+      if (BOOLS.includes(k)) { input.type = 'checkbox'; input.checked = r.data[k]; label.append(input, k); }
+      else { if (k !== 'tankName') { input.type = 'number'; input.step = 'any'; } input.value = r.data[k]; label.append(k, input); }
+      box.appendChild(label);
+    });
+  }
+  $('cfgForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const body = {};
+    for (const el of e.target.elements) {
+      if (!el.name) continue;
+      body[el.name] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value;
+    }
+    const r = await post('/api/config', body);
+    if (r.ok) loadConfig();
+  };
+
+  async function loadNetwork() {
+    const r = await api('/api/network');
+    if (!r.ok) return;
+    const f = $('netForm').elements;
+    f.wifiSsid.value = r.data.wifiSsid; f.fbDbUrl.value = r.data.fbDbUrl; f.fbEmail.value = r.data.fbEmail;
+    f.cloudEnabled.checked = r.data.cloudEnabled; f.remoteControl.checked = r.data.remoteControl;
+    $('hasWifi').textContent = r.data.hasWifiPass ? '(saved)' : '';
+    $('hasKey').textContent = r.data.hasFbApiKey ? '(saved)' : '';
+    $('hasFbPw').textContent = r.data.hasFbPassword ? '(saved)' : '';
+  }
+  $('netForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const body = {};
+    for (const el of e.target.elements) if (el.name) body[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+    const r = await post('/api/network', body);
+    if (r.ok) say('Saved. The unit is restarting…', true);
+  };
+
+  $('setupBtn').onclick = async () => {
+    const r = await post('/api/setup', { password: $('setupPw').value });
+    if (r.ok) { $('loginPw').value = $('setupPw').value; $('loginBtn').click(); }
+  };
+  $('loginBtn').onclick = async () => {
+    const r = await api('/api/login', { password: $('loginPw').value });
+    if (r.ok) { token = r.data.token; sessionStorage.setItem('agToken', token); $('loginPw').value = ''; gate(); }
+    else say('Sign-in failed: ' + pretty(r.data.reason));
+  };
+  document.querySelectorAll('[data-post]').forEach((b) => (b.onclick = () => post(b.dataset.post)));
+  document.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => post('/api/mode', { mode: b.dataset.mode })));
+
+  $('otaBtn').onclick = async () => {
+    const file = $('otaFile').files[0];
+    if (!file) return say('Choose a firmware .bin file first');
+    if (!confirm('Upload ' + file.name + '? The valve closes and the unit restarts disarmed.')) return;
+    const form = new FormData();
+    form.append('firmware', file, file.name);
+    $('otaBtn').disabled = true;
+    const r = await api('/api/ota', null, form);
+    $('otaBtn').disabled = false;
+    if (r.ok) say('Update written. Restarting…', true); else say('Update failed: ' + pretty(r.data.reason));
+  };
+
+  function connectLive() {
+    const es = new EventSource('/api/live');
+    es.addEventListener('status', (e) => {
+      $('link').textContent = 'live';
+      render(Object.assign({}, status, JSON.parse(e.data)));
+    });
+    es.onerror = () => { $('link').textContent = 'reconnecting…'; };
+  }
+  refresh();
+  setInterval(refresh, 5000);
+  connectLive();
+})();
+</script>
+</body>
+</html>

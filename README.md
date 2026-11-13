@@ -1,22 +1,141 @@
 # AquaGuard
 
-Smart residential water tank monitoring and automatic filling system using an ESP32-S3.
+Smart residential water tank monitoring and automatic filling, built on an ESP32-S3.
+
+A waterproof ultrasonic sensor on the roof measures the tank level. The
+controller opens a normally closed inlet valve at 35 % and closes it at 90 %.
+A float switch and an emergency stop cut valve power through a relay on their
+own, without any software. You watch and manage the tank from a phone app,
+from anywhere.
+
+## Current versions
+
+| Program | Version | Where it lives | Status |
+|---|---|---|---|
+| Firmware (ESP32-S3) | **0.1.0** | [`firmware/`](firmware/) | Compiles; 38 logic tests pass; not yet run on hardware |
+| Phone app (Android, iOS, web) | **0.2.0** | [`mobile/`](mobile/) | Type-checks; 13 tests pass; bundles for all three; demo mode viewable in a browser; not yet run against a live unit |
+| Data schema (unit ↔ cloud ↔ app) | **1** | [`docs/firebase-setup.md`](docs/firebase-setup.md) | |
+| Project guide | 13 Nov 2026 | [`documents/`](documents/) | Hardware design, 21 pages |
+
+Version numbers are kept in one file, [`versions.json`](versions.json), and
+copied into each program by `node scripts/sync-versions.mjs`. Every change is
+listed in [`CHANGELOG.md`](CHANGELOG.md).
+
+## What is in this repository
+
+```
+documents/   Project guide: buying list, wiring, calibration, commissioning (.docx)
+firmware/    ESP32-S3 firmware (PlatformIO, Arduino C++) and the local web dashboard
+mobile/      Phone app (Expo / React Native, TypeScript)
+firebase/    Database access rules and their test
+docs/        Remote access setup guide
+scripts/     Version sync
+```
+
+## How the parts connect
+
+```
+Roof: JSN-SR04T sensor ──RS485──▶ ESP32-S3 controller ──▶ valve (through relay K1)
+                                      │   ▲
+            float + emergency stop ───┘   │  hardware interlock, no software involved
+                                      │
+              home Wi-Fi ─────────────┤
+                                      ├──▶ local dashboard  http://<unit-ip>/   (works with no internet)
+                                      └──▶ Firebase (outbound HTTPS only) ◀──▶ phone app, anywhere
+```
+
+### Remote access at no cost
+
+The recommended and implemented method is **Firebase Realtime Database on the
+free Spark plan** (no payment card):
+
+- The unit only makes outbound connections, so there is no port forwarding and
+  the controller is never exposed to the internet.
+- The app gets live updates, sign-in and per-unit access rules.
+- One codebase runs on Android, iOS and the web. It runs in the free Expo Go
+  app, so no paid developer account is needed to use it.
+- If the internet is down, the unit keeps working and the local dashboard still loads.
+
+Alternatives considered and the reasons are in
+[`docs/firebase-setup.md`](docs/firebase-setup.md#why-firebase).
+
+## Getting started
+
+1. **Buy and wire** the hardware using the
+   [project guide](documents/AquaGuard_ESP32_S3_Complete_Project_and_Sri_Lanka_Buying_Guide.docx).
+2. **Flash the firmware**: [`firmware/README.md`](firmware/README.md).
+
+   ```bash
+   cd firmware
+   pio test -e native                  # logic tests, no board needed
+   pio run -e aquaguard_s3 -t upload   # build and flash
+   ```
+
+3. **First start**: join the unit's setup Wi-Fi, set a password, enter your
+   Wi-Fi, calibrate, mark it commissioned, acknowledge to arm.
+4. **Remote access**: follow [`docs/firebase-setup.md`](docs/firebase-setup.md) (about 15 minutes, once).
+5. **Phone app**: [`mobile/README.md`](mobile/README.md).
+
+   ```bash
+   cd mobile
+   npm install
+   cp .env.example .env    # paste your Firebase web config
+   npx expo start          # scan the QR code with Expo Go
+   ```
+
+## Safety
+
+- The firmware has **not been tested on hardware yet**. Commission it on a
+  supervised low-voltage test rig, with a 12 V lamp in place of the valve,
+  following guide sections 16 and 17, before it controls water.
+- Overfill protection does not rely on software: the float loop and emergency
+  stop interrupt valve power through relay K1. Keep the independent mechanical
+  float valve and a clear overflow path.
+- The app and dashboard show the valve **command**. Without a flow sensor
+  nothing can prove the valve physically closed.
+- Remote control is off by default. When enabled at the unit, remote requests
+  pass the same checks as local ones; an emergency stop can only be
+  acknowledged at the unit, and calibration can only be changed there.
+- A permanent house installation needs a valve rated for your water pressure
+  and potable water, protected outdoor wiring, and qualified installers, as
+  the guide describes.
+
+## Known gaps
+
+- Hardware validation of the firmware (sensor frames, interlocks, valve timing).
+- The Firebase rules test (`firebase/rules.test.mjs`) has not been run; it
+  needs Java for the local emulator.
+- The app has not been run against a live Firebase project.
+- Root certificates for Firebase are embedded in the firmware; the earliest
+  expires in January 2028 and they will need refreshing in a firmware update
+  before then.
+- No push notifications yet: the app shows faults when opened.
 
 ## Project guide
 
-[Download the complete project and Sri Lanka buying guide](documents/AquaGuard_ESP32_S3_Complete_Project_and_Sri_Lanka_Buying_Guide.docx).
+[Download the complete project and Sri Lanka buying guide](documents/AquaGuard_ESP32_S3_Complete_Project_and_Sri_Lanka_Buying_Guide.docx)
+(21 pages): component quantities and Sri Lankan supplier links, GPIO
+assignments, RS485 and power wiring, the interlock and valve driver circuits,
+calibration, control behaviour, commissioning and fault tests. Supplier
+information and reference prices were reviewed on 13 November 2026; confirm
+stock and delivered part specifications before buying.
 
-The 21-page guide includes:
+## See the app without a phone
 
-- Component quantities, Sri Lankan supplier links, reference prices, and stock checks.
-- ESP32-S3 GPIO assignments, RS485 connections, terminal schedules, and power distribution.
-- Independent high-water and emergency-stop interlocks and the valve driver circuit.
-- Calibration, control behavior, firmware requirements, assembly, commissioning, and fault tests.
+```bash
+cd mobile
+npm install
+npx expo start --web
+```
 
-The guide describes a prototype hardware design. Firmware implementation and physical hardware validation remain to be completed before commissioning.
+A browser tab opens. Choose **Open the demo with sample data** to explore every
+tab with a simulated tank: no Firebase project, unit or phone needed. Narrow
+the browser window (or use the browser's device toolbar) for a phone-sized
+view. Details and emulator options are in [`mobile/README.md`](mobile/README.md).
 
-## Installation
+## Latest update
 
-Start with a supervised low-voltage test rig. A permanent house installation requires components suitable for actual water pressure and potable water, protected outdoor wiring, an independent mechanical float valve, and qualified installation as described in the guide.
-
-Supplier information and reference prices were reviewed on 13 November 2026. Confirm stock and the delivered component specifications before purchasing.
+**13 November 2026: phone app 0.2.0.** Added a demo mode: a simulated tank that
+lets the whole app be viewed and operated in a browser or on a phone with no
+Firebase project and no hardware. Firmware is unchanged at 0.1.0. Details in
+[`CHANGELOG.md`](CHANGELOG.md).
