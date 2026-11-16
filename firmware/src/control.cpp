@@ -104,6 +104,7 @@ void task(void*) {
       in.levelValid = !app::pipeline.isStale(now);
       in.levelPercent = app::pipeline.hasTrusted() ? app::pipeline.trustedPercent() : 0.0f;
       in.sensorCritical = app::pipeline.critical();
+      in.outsideSchedule = !ag::scheduleAllowsAt(app::cfg, app::epochNow());
       app::inputs = in;
       app::safety.tick(now, in);
       open = app::safety.valveRequest();

@@ -180,6 +180,10 @@ void handleNetwork(AsyncWebServerRequest* req, JsonObjectConst body) {
     if (minutes < 1 || minutes > 60) return sendResult(req, "SLEEP_MINUTES_1_TO_60", 400);
     n.sleepMinutes = static_cast<uint8_t>(minutes);
   }
+  if (strlen(body["settingsPin"] | "")) {
+    if (!ag::pinFormatValid(body["settingsPin"].as<const char*>())) return sendResult(req, "PIN_MUST_BE_4_TO_8_DIGITS", 400);
+    n.settingsPin = body["settingsPin"].as<const char*>();
+  }
   if (body["fbDbUrl"].is<const char*>()) n.fbDbUrl = body["fbDbUrl"].as<const char*>();
   if (body["fbEmail"].is<const char*>()) n.fbEmail = body["fbEmail"].as<const char*>();
   if (strlen(body["fbApiKey"] | "")) n.fbApiKey = body["fbApiKey"].as<const char*>();
@@ -289,6 +293,7 @@ void routes() {
     doc["remoteControl"] = n.remoteControl;
     doc["sleepEnabled"] = n.sleepEnabled;
     doc["sleepMinutes"] = n.sleepMinutes;
+    doc["settingsPin"] = n.settingsPin;  // shown to the signed-in administrator only
     doc["fbDbUrl"] = n.fbDbUrl;
     doc["fbEmail"] = n.fbEmail;
     doc["hasFbApiKey"] = !n.fbApiKey.isEmpty();

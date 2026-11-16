@@ -6,6 +6,7 @@
 
 #include "ag_config.h"
 #include "ag_safety.h"
+#include "ag_schedule.h"
 #include "ag_sensor.h"
 
 using namespace ag;
@@ -668,6 +669,160 @@ void test_resume_after_sleep_refuses_unhealthy_inputs() {
   }
 }
 
+// ------------------------------------------------------- schedule and PIN
+
+static void test_schedule_off_always_allows() {
+  Config c;
+  TEST_ASSERT_TRUE(scheduleAllows(c, 3, 13 * 60));
+  TEST_ASSERT_TRUE(scheduleAllowsAt(c, 1800000000u));
+}
+
+static void test_schedule_same_day_window() {
+  Config c;
+  c.scheduleEnabled = true;  // default windows: 12:00 am to 8:00 am
+  TEST_ASSERT_TRUE(scheduleAllows(c, 2, 0));
+  TEST_ASSERT_TRUE(scheduleAllows(c, 2, 479));
+  TEST_ASSERT_FALSE(scheduleAllows(c, 2, 480));  // the end minute is outside
+  TEST_ASSERT_FALSE(scheduleAllows(c, 2, 13 * 60));
+}
+
+static void test_schedule_weekend_uses_its_own_window() {
+  Config c;
+  c.scheduleEnabled = true;
+  c.weekendStartMin = 10 * 60;
+  c.weekendEndMin = 16 * 60;
+  TEST_ASSERT_TRUE(scheduleAllows(c, 6, 12 * 60));   // Saturday
+  TEST_ASSERT_TRUE(scheduleAllows(c, 0, 12 * 60));   // Sunday
+  TEST_ASSERT_FALSE(scheduleAllows(c, 1, 12 * 60));  // Monday
+  TEST_ASSERT_FALSE(scheduleAllows(c, 6, 2 * 60));
+}
+
+static void test_schedule_window_past_midnight_belongs_to_its_start_day() {
+  Config c;
+  c.scheduleEnabled = true;
+  c.weekdayStartMin = 22 * 60;  // 10 pm to 5 am
+  c.weekdayEndMin = 5 * 60;
+  c.weekendStartMin = 9 * 60;   // 9 am to 11 am
+  c.weekendEndMin = 11 * 60;
+  TEST_ASSERT_TRUE(scheduleAllows(c, 3, 23 * 60));
+  TEST_ASSERT_TRUE(scheduleAllows(c, 4, 4 * 60));
+  TEST_ASSERT_FALSE(scheduleAllows(c, 4, 6 * 60));
+  TEST_ASSERT_TRUE(scheduleAllows(c, 6, 4 * 60));   // Saturday early: tail of Friday's window
+  TEST_ASSERT_FALSE(scheduleAllows(c, 0, 4 * 60));  // Sunday early: Saturday's window did not wrap
+  TEST_ASSERT_FALSE(scheduleAllows(c, 1, 4 * 60));  // Monday early: Sunday's window did not wrap
+}
+
+static void test_schedule_from_epoch_uses_the_utc_offset() {
+  Config c;
+  c.scheduleEnabled = true;  // 12:00 am to 8:00 am, UTC+5:30
+  // 2026-11-16 (a Monday) 00:00 UTC is 05:30 local.
+  const uint32_t mondayUtc = 1794787200u;
+  TEST_ASSERT_TRUE(scheduleAllowsAt(c, mondayUtc));
+  TEST_ASSERT_FALSE(scheduleAllowsAt(c, mondayUtc + 3 * 3600));        // 08:30 local
+  TEST_ASSERT_TRUE(scheduleAllowsAt(c, mondayUtc + 19 * 3600));        // 00:30 local Tuesday
+  c.utcOffsetMinutes = 0;
+  TEST_ASSERT_FALSE(scheduleAllowsAt(c, mondayUtc + 9 * 3600));
+  TEST_ASSERT_TRUE(scheduleAllowsAt(c, 0));  // unknown clock: do not starve the tank
+}
+
+static void test_schedule_settings_are_validated() {
+  Config c;
+  TEST_ASSERT_NULL(validateConfig(c));
+  c.weekdayEndMin = 1440;
+  TEST_ASSERT_EQUAL_STRING("SCHEDULE_TIME_RANGE", validateConfig(c));
+  c = Config();
+  c.weekendStartMin = c.weekendEndMin = 300;
+  TEST_ASSERT_EQUAL_STRING("SCHEDULE_WINDOW_EMPTY", validateConfig(c));
+  c = Config();
+  c.utcOffsetMinutes = 900;
+  TEST_ASSERT_EQUAL_STRING("UTC_OFFSET_RANGE", validateConfig(c));
+}
+
+static void test_auto_fill_waits_for_the_supply_window() {
+  Rig r;
+  r.arm();
+  r.in.outsideSchedule = true;
+  r.in.levelPercent = 30.0f;
+  r.run(200);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  TEST_ASSERT_TRUE(r.sm.waitingForSchedule());
+  TEST_ASSERT_EQUAL(0, r.sm.faults());
+  r.in.outsideSchedule = false;
+  r.run(40);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+  TEST_ASSERT_FALSE(r.sm.waitingForSchedule());
+}
+
+static void test_supply_window_closing_ends_an_automatic_fill_without_a_fault() {
+  Rig r;
+  r.arm();
+  r.in.levelPercent = 30.0f;
+  r.run(40);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+  r.in.levelPercent = 50.0f;
+  r.in.outsideSchedule = true;
+  r.run(40);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  TEST_ASSERT_EQUAL(0, r.sm.faults());
+  TEST_ASSERT_TRUE(r.sm.armed());
+  TEST_ASSERT_TRUE(r.saw(Event::FillStopped));
+  r.run(200);  // above the start threshold: nothing to wait for
+  TEST_ASSERT_FALSE(r.sm.waitingForSchedule());
+}
+
+static void test_schedule_never_blocks_a_manual_open() {
+  Rig r;
+  r.arm();
+  r.in.outsideSchedule = true;
+  ASSERT_DENY(Deny::None, r.sm.requestMode(Mode::Manual, r.now));
+  ASSERT_DENY(Deny::None, r.sm.requestOpen(r.now));
+  r.run(200);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+}
+
+static void test_pin_format() {
+  TEST_ASSERT_TRUE(pinFormatValid("4211"));
+  TEST_ASSERT_TRUE(pinFormatValid("12345678"));
+  TEST_ASSERT_FALSE(pinFormatValid("421"));
+  TEST_ASSERT_FALSE(pinFormatValid("123456789"));
+  TEST_ASSERT_FALSE(pinFormatValid("42a1"));
+  TEST_ASSERT_FALSE(pinFormatValid(""));
+  TEST_ASSERT_FALSE(pinFormatValid(nullptr));
+}
+
+static void test_pin_guard_accepts_only_the_right_pin() {
+  PinGuard g;
+  TEST_ASSERT_TRUE(g.check("4211", "4211", 1000) == PinResult::Ok);
+  TEST_ASSERT_TRUE(g.check("4212", "4211", 1000) == PinResult::Wrong);
+  TEST_ASSERT_TRUE(g.check("", "4211", 1000) == PinResult::Wrong);
+  TEST_ASSERT_TRUE(g.check(nullptr, "4211", 1000) == PinResult::Wrong);
+  TEST_ASSERT_TRUE(g.check("42110", "4211", 1000) == PinResult::Wrong);
+  TEST_ASSERT_TRUE(g.check("", "", 1000) == PinResult::Wrong);  // a blank stored PIN opens nothing
+}
+
+static void test_pin_guard_locks_after_five_wrong_tries() {
+  PinGuard g;
+  uint32_t now = 0xFFFFF000u;  // also crosses the millis() rollover
+  for (int i = 0; i < PinGuard::kMaxWrong; i++) {
+    TEST_ASSERT_TRUE(g.check("0000", "4211", now) == PinResult::Wrong);
+  }
+  TEST_ASSERT_TRUE(g.check("4211", "4211", now + 1000) == PinResult::Locked);
+  TEST_ASSERT_TRUE(g.lockedRemainingS(now + 1000) > 0);
+  now += PinGuard::kLockMs;
+  TEST_ASSERT_TRUE(g.check("4211", "4211", now) == PinResult::Ok);
+  TEST_ASSERT_EQUAL(0, g.lockedRemainingS(now));
+}
+
+static void test_pin_guard_right_pin_resets_the_count() {
+  PinGuard g;
+  for (int round = 0; round < 3; round++) {
+    for (int i = 0; i < PinGuard::kMaxWrong - 1; i++) {
+      TEST_ASSERT_TRUE(g.check("0000", "4211", 1000) == PinResult::Wrong);
+    }
+    TEST_ASSERT_TRUE(g.check("4211", "4211", 1000) == PinResult::Ok);
+  }
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_parser_decodes_guide_example_frame);
@@ -711,5 +866,18 @@ int main(int, char**) {
   RUN_TEST(test_resume_after_sleep_arms_only_when_everything_is_healthy);
   RUN_TEST(test_resume_after_sleep_never_clears_a_latch);
   RUN_TEST(test_resume_after_sleep_refuses_unhealthy_inputs);
+  RUN_TEST(test_schedule_off_always_allows);
+  RUN_TEST(test_schedule_same_day_window);
+  RUN_TEST(test_schedule_weekend_uses_its_own_window);
+  RUN_TEST(test_schedule_window_past_midnight_belongs_to_its_start_day);
+  RUN_TEST(test_schedule_from_epoch_uses_the_utc_offset);
+  RUN_TEST(test_schedule_settings_are_validated);
+  RUN_TEST(test_auto_fill_waits_for_the_supply_window);
+  RUN_TEST(test_supply_window_closing_ends_an_automatic_fill_without_a_fault);
+  RUN_TEST(test_schedule_never_blocks_a_manual_open);
+  RUN_TEST(test_pin_format);
+  RUN_TEST(test_pin_guard_accepts_only_the_right_pin);
+  RUN_TEST(test_pin_guard_locks_after_five_wrong_tries);
+  RUN_TEST(test_pin_guard_right_pin_resets_the_count);
   return UNITY_END();
 }

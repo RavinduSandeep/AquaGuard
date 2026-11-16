@@ -75,8 +75,15 @@ for that unit. It cannot send commands or read anything else.
 [`firebase/database.rules.json`](../firebase/database.rules.json), then **Publish**.
 
 In short: only members of a unit can read it; only the device account writes
-status, history, events and results; only the owner writes commands, the
-logbook and the installation record; nobody can add members from an app.
+status, history, events and results; only the owner writes valve, mode and
+acknowledge commands, the logbook and the installation record; any member
+may ask for a settings change, which the unit accepts only with the settings
+PIN; the command queue can be read only by the unit, so a PIN in transit is
+not visible to other members; nobody can add members from an app.
+
+If you published the rules before 16 November 2026 (firmware 0.4.0 or
+earlier), publish this file again: the older rules let every member read the
+command queue and do not let viewers save settings.
 
 ### 5. Register the unit's members
 
@@ -146,10 +153,18 @@ Everything for one unit lives under `/devices/<deviceId>/`:
 | `config` | Unit, on change | Settings currently in force |
 | `events/<pushId>` | Unit | Boot, fill, fault, denial, settings, acknowledge events |
 | `history/<YYYYMMDD>/<HHMM>` | Unit, every 5 min | `{ p: percent, v: valve 0/1 }`, UTC, kept 30 days |
-| `commands/<pushId>` | App | `{ type, ts, uid, ... }` |
+| `commands/<pushId>` | App | `{ type, ts, uid, ... }`; `setConfig` also carries `config` and `pin`. Readable by the unit only |
 | `results/<pushId>` | Unit | `{ ok, reason, type, at }` |
 | `logbook/<pushId>` | App | Maintenance entries |
 | `record` | App | Installation record (guide section 18) |
+
+**Schema 2 (firmware and app 0.5.0)** added the supply schedule:
+`config.scheduleEnabled`, `weekdayStartMin`, `weekdayEndMin`,
+`weekendStartMin`, `weekendEndMin` (minutes after midnight, local time; a
+start after the end runs past midnight) and `utcOffsetMinutes`; and
+`status.schedule = { clockKnown, open, waiting }` while the schedule is on.
+A remote `setConfig` must carry the settings PIN. The PIN itself is stored
+only on the unit and is never written to Firebase by the unit.
 
 `status.simulated` is `true` only for the bench-test firmware build.
 

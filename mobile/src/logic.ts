@@ -40,6 +40,8 @@ export type DeviceStatus = {
   // Present only when power saving is switched on at the unit. sleepUntil
   // (epoch seconds) is set in the last report before a sleep.
   power?: { sleepMinutes: number; sleepUntil?: number };
+  // Present only when the supply schedule is switched on.
+  schedule?: { clockKnown: boolean; open: boolean; waiting: boolean };
   // True only for the firmware's bench-test build (pretend sensor and inputs).
   simulated?: boolean;
 };
@@ -101,6 +103,7 @@ export function headline(
   if (!status.armed) return { tone: 'warn', text: 'Disarmed: acknowledge to arm' };
   if (!status.level?.valid) return { tone: 'warn', text: 'Sensor reading stale' };
   if (status.valve.commanded) return { tone: 'info', text: 'Filling (commanded)' };
+  if (status.schedule?.waiting) return { tone: 'info', text: 'Level is low: waiting for the next filling time' };
   if ((status.warnings ?? []).length) return { tone: 'warn', text: (status.warnings ?? []).map(humanize).join(' · ') };
   return { tone: 'ok', text: 'Monitoring' };
 }
@@ -128,6 +131,13 @@ const LABELS: Record<string, string> = {
   STALE_COMMAND: 'The request reached the unit too late and was discarded',
   TIME_UNKNOWN: 'The unit has no clock time yet',
   NO_ANSWER: 'No answer from the unit. It may be offline',
+  OUTSIDE_SCHEDULE: 'Outside the filling times',
+  WAITING_FOR_SUPPLY_WINDOW: 'Level is low: waiting for the next filling time',
+  SCHEDULE_CLOCK_UNKNOWN: 'The unit has no clock time, so the filling times are not applied',
+  WRONG_PIN: 'Wrong PIN',
+  PIN_LOCKED: 'Too many wrong PINs. Try again in 5 minutes',
+  PERMISSION_DENIED: 'This account is not allowed to change this unit',
+  SCHEDULE_WINDOW_EMPTY: 'A filling time must start and end at different times',
   NONE: 'Nothing',
 };
 
@@ -335,4 +345,173 @@ export function buildPatch(
 export function normalizeDeviceId(input: string): string | null {
   const id = input.trim().toLowerCase();
   return /^ag-[0-9a-f]{6}$/.test(id) ? id : null;
+}
+
+// ------------------------------------------------------------ saved units
+
+/** A unit this phone has connected to. The list is kept on the phone only. */
+export type SavedUnit = { id: string; name: string };
+
+export const MAX_SAVED_UNITS = 12;
+
+function cleanUnitName(name: unknown): string {
+  return typeof name === 'string' ? name.trim().slice(0, 40) : '';
+}
+
+/** Reads the stored list. Anything malformed is dropped, never trusted. */
+export function parseSavedUnits(raw: string | null | undefined): SavedUnit[] {
+  if (!raw) return [];
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(data)) return [];
+  const out: SavedUnit[] = [];
+  for (const item of data) {
+    const id = normalizeDeviceId(typeof item?.id === 'string' ? item.id : '');
+    if (!id || out.some((u) => u.id === id)) continue;
+    out.push({ id, name: cleanUnitName(item?.name) });
+    if (out.length >= MAX_SAVED_UNITS) break;
+  }
+  return out;
+}
+
+/**
+ * Adds a unit, or updates the name of one already saved. The order never
+ * changes, so a unit stays in the same place in the list. A missing name
+ * keeps the name already saved. Returns the same array when nothing changed.
+ */
+export function upsertUnit(list: SavedUnit[], id: string, name?: string): SavedUnit[] {
+  const clean = cleanUnitName(name);
+  const at = list.findIndex((u) => u.id === id);
+  if (at >= 0) {
+    if (!clean || list[at].name === clean) return list;
+    return list.map((u, i) => (i === at ? { id, name: clean } : u));
+  }
+  if (list.length >= MAX_SAVED_UNITS) return list;
+  return [...list, { id, name: clean }];
+}
+
+export function removeUnit(list: SavedUnit[], id: string): SavedUnit[] {
+  return list.filter((u) => u.id !== id);
+}
+
+/** Name to show for a unit. Until the unit has reported its name, the ID. */
+export function unitLabel(unit: SavedUnit): string {
+  return unit.name || unit.id;
+}
+
+// ---------------------------------------------------------- filling times
+
+export const MINUTES_PER_DAY = 1440;
+
+export type Schedule = {
+  enabled: boolean;
+  weekdayStart: number; // minutes after midnight, Monday to Friday
+  weekdayEnd: number;
+  weekendStart: number; // Saturday and Sunday
+  weekendEnd: number;
+};
+
+const SCHEDULE_FIELDS: [keyof Schedule, string][] = [
+  ['enabled', 'scheduleEnabled'],
+  ['weekdayStart', 'weekdayStartMin'],
+  ['weekdayEnd', 'weekdayEndMin'],
+  ['weekendStart', 'weekendStartMin'],
+  ['weekendEnd', 'weekendEndMin'],
+];
+
+/** null when the unit's firmware is too old to have filling times. */
+export function scheduleFromConfig(config: DeviceConfig | null): Schedule | null {
+  if (!config || config.scheduleEnabled === undefined) return null;
+  return {
+    enabled: Boolean(config.scheduleEnabled),
+    weekdayStart: Number(config.weekdayStartMin ?? 0),
+    weekdayEnd: Number(config.weekdayEndMin ?? 480),
+    weekendStart: Number(config.weekendStartMin ?? 0),
+    weekendEnd: Number(config.weekendEndMin ?? 480),
+  };
+}
+
+/** Only the values that differ from what the unit has now. */
+export function schedulePatch(
+  config: DeviceConfig,
+  draft: Schedule,
+): { patch: DeviceConfig; error?: undefined } | { error: string; patch?: undefined } {
+  if (draft.weekdayStart === draft.weekdayEnd) return { error: 'Weekdays: the start and end times are the same' };
+  if (draft.weekendStart === draft.weekendEnd) return { error: 'Weekends: the start and end times are the same' };
+  const patch: DeviceConfig = {};
+  for (const [field, key] of SCHEDULE_FIELDS) {
+    if (draft[field] !== config[key]) patch[key] = draft[field];
+  }
+  return { patch };
+}
+
+/** 0 -> "12:00 am", 810 -> "1:30 pm". */
+export function formatClock(minuteOfDay: number): string {
+  const m = ((Math.round(minuteOfDay) % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+  const h = Math.floor(m / 60);
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m % 60).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`;
+}
+
+/** Moves a time by `delta` minutes, wrapping round midnight. */
+export function stepClock(minuteOfDay: number, delta: number): number {
+  return (((minuteOfDay + delta) % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+}
+
+/** Length of a window in minutes; a start after the end runs past midnight. */
+export function windowMinutes(start: number, end: number): number {
+  return end > start ? end - start : end + MINUTES_PER_DAY - start;
+}
+
+/** "12:00 am to 8:00 am (8 h)"; says "next day" when it runs past midnight. */
+export function describeWindow(start: number, end: number): string {
+  const length = windowMinutes(start, end);
+  const hours = Math.floor(length / 60);
+  const mins = length % 60;
+  const lengthText = hours && mins ? `${hours} h ${mins} min` : hours ? `${hours} h` : `${mins} min`;
+  return `${formatClock(start)} to ${formatClock(end)}${end < start ? ' next day' : ''} (${lengthText})`;
+}
+
+/** Parts of the day covered by a window, as fractions 0..1, for the day bar. */
+export function windowSegments(start: number, end: number): { from: number; to: number }[] {
+  if (start === end) return [];
+  if (start < end) return [{ from: start / MINUTES_PER_DAY, to: end / MINUTES_PER_DAY }];
+  const parts = [{ from: start / MINUTES_PER_DAY, to: 1 }];
+  if (end > 0) parts.unshift({ from: 0, to: end / MINUTES_PER_DAY });
+  return parts;
+}
+
+/**
+ * The unit's own rule, mirrored for the demo and for previews. dayOfWeek:
+ * 0 = Sunday .. 6 = Saturday. A window that runs past midnight belongs to the
+ * day it started on.
+ */
+export function scheduleAllows(s: Schedule, dayOfWeek: number, minuteOfDay: number): boolean {
+  if (!s.enabled) return true;
+  const windowFor = (dow: number) =>
+    dow === 0 || dow === 6 ? [s.weekendStart, s.weekendEnd] : [s.weekdayStart, s.weekdayEnd];
+  const [start, end] = windowFor(dayOfWeek);
+  if (start < end ? minuteOfDay >= start && minuteOfDay < end : minuteOfDay >= start) return true;
+  const [yStart, yEnd] = windowFor((dayOfWeek + 6) % 7);
+  return yStart > yEnd && minuteOfDay < yEnd;
+}
+
+/** Day of week and minute of day at the unit, from its UTC offset. */
+export function unitClock(nowMs: number, utcOffsetMinutes: number): { dayOfWeek: number; minuteOfDay: number } {
+  const local = new Date(nowMs + utcOffsetMinutes * 60_000);
+  return { dayOfWeek: local.getUTCDay(), minuteOfDay: local.getUTCHours() * 60 + local.getUTCMinutes() };
+}
+
+/** 330 -> "UTC+5:30". */
+export function formatUtcOffset(minutes: number): string {
+  const abs = Math.abs(minutes);
+  return `UTC${minutes < 0 ? '-' : '+'}${Math.floor(abs / 60)}${abs % 60 ? `:${String(abs % 60).padStart(2, '0')}` : ''}`;
+}
+
+/** The settings PIN is 4 to 8 digits. */
+export function pinLooksValid(pin: string): boolean {
+  return /^\d{4,8}$/.test(pin);
 }

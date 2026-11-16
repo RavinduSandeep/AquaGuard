@@ -24,6 +24,7 @@ volatile uint32_t sleepUntilEpoch = 0;
 
 namespace {
 LogEntry logRing[kLogSize];
+ag::PinGuard pinGuard;
 uint32_t logSeq = 0;
 
 void safetySink(void*, ag::Event e, int32_t arg) { logEvent(e, arg); }
@@ -100,10 +101,19 @@ ag::Deny cmdMute(Source) {
   return ag::Deny::None;
 }
 
-const char* cmdSetConfig(JsonObjectConst patch, Source src) {
+const char* cmdSetConfig(JsonObjectConst patch, Source src, const char* pin) {
   Lock l;
   if (!remoteAllowed(src)) return ag::denyName(ag::Deny::RemoteDisabled);
   if (otaInProgress) return ag::denyName(ag::Deny::Lockout);
+  if (src == Source::Remote) {
+    switch (pinGuard.check(pin, net.settingsPin.c_str(), millis())) {
+      case ag::PinResult::Ok: break;
+      case ag::PinResult::Locked: return "PIN_LOCKED";
+      case ag::PinResult::Wrong:
+        logEvent(ag::Event::SettingsRejected, 1);
+        return "WRONG_PIN";
+    }
+  }
   ag::Config next = cfgValid ? cfg : ag::Config();
   const char* why = storage::configFromJson(patch, next, src == Source::Remote);
   if (why) {
@@ -188,6 +198,14 @@ void fillStatus(JsonObject o) {
     if (sleepUntilEpoch) power["sleepUntil"] = static_cast<uint32_t>(sleepUntilEpoch);
   }
 
+  if (cfg.scheduleEnabled) {
+    const uint32_t epoch = epochNow();
+    JsonObject sch = o["schedule"].to<JsonObject>();
+    sch["clockKnown"] = epoch != 0;
+    sch["open"] = ag::scheduleAllowsAt(cfg, epoch);
+    sch["waiting"] = safety.waitingForSchedule();
+  }
+
   JsonObject valve = o["valve"].to<JsonObject>();
   // Commanded state only: there is no flow or position feedback.
   valve["commanded"] = safety.valveRequest();
@@ -211,6 +229,8 @@ void fillStatus(JsonObject o) {
   if (!valid && !(safety.faults() & ag::kFaultSensor)) warnings.add("SENSOR_STALE");
   if (safety.noProgressWarning()) warnings.add("NO_PROGRESS_WARNING");
   if (safety.retryRemainingS(now)) warnings.add("RETRY_WAIT");
+  if (safety.waitingForSchedule()) warnings.add("WAITING_FOR_SUPPLY_WINDOW");
+  if (cfg.scheduleEnabled && !epochNow()) warnings.add("SCHEDULE_CLOCK_UNKNOWN");
   if (!cfg.commissioned) warnings.add("NOT_COMMISSIONED");
   if (safety.lockout()) warnings.add("LOCKOUT");
 

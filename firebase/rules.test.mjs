@@ -64,6 +64,23 @@ await allowed('owner withdraws own command', 'PUT', d('commands/c7'), { type: 'a
 await allowed('owner withdraws own command (delete)', 'DELETE', d('commands/c7'), undefined, 'ownerUid');
 await allowed('device clears the queue', 'DELETE', d('commands'), undefined, 'deviceUid');
 
+// Settings PIN: commands are hidden from people, and a viewer may only ask for a settings change.
+await allowed('seed viewer', 'PUT', d('members/viewerUid'), 'viewer', 'admin');
+await allowed('viewer reads status', 'GET', d('status'), undefined, 'viewerUid');
+await denied('viewer reads the command queue', 'GET', d('commands'), undefined, 'viewerUid');
+await denied('owner reads the command queue', 'GET', d('commands'), undefined, 'ownerUid');
+await denied('whole unit cannot be read in one go', 'GET', `devices/${DEV}`, undefined, 'ownerUid');
+await allowed('viewer asks for a settings change with a PIN', 'PUT', d('commands/v1'), { type: 'setConfig', config: { scheduleEnabled: true }, pin: '4211', ts, uid: 'viewerUid' }, 'viewerUid');
+await denied('viewer settings change without a PIN', 'PUT', d('commands/v2'), { type: 'setConfig', config: {}, ts, uid: 'viewerUid' }, 'viewerUid');
+await denied('viewer opens the valve', 'PUT', d('commands/v3'), { type: 'open', pin: '4211', ts, uid: 'viewerUid' }, 'viewerUid');
+await denied('viewer removes a command', 'DELETE', d('commands/v1'), undefined, 'viewerUid');
+await denied('over-long PIN', 'PUT', d('commands/v4'), { type: 'setConfig', config: {}, pin: '123456789', ts, uid: 'ownerUid' }, 'ownerUid');
+await allowed('device answers the viewer', 'PUT', d('results/v1'), { ok: true, at: ts }, 'deviceUid');
+await allowed('viewer reads the answer', 'GET', d('results/v1'), undefined, 'viewerUid');
+await allowed('viewer clears the answer', 'DELETE', d('results/v1'), undefined, 'viewerUid');
+await denied('viewer fakes an answer', 'PUT', d('results/v9'), { ok: true }, 'viewerUid');
+await denied('viewer logbook entry', 'POST', d('logbook'), { kind: 'Note' }, 'viewerUid');
+
 await allowed('owner logbook entry', 'POST', d('logbook'), { kind: 'Monthly check', checks: ['a'], note: 'ok', by: 'me', at: ts }, 'ownerUid');
 await denied('device logbook entry', 'POST', d('logbook'), { kind: 'Note' }, 'deviceUid');
 await denied('oversized note', 'POST', d('logbook'), { kind: 'Note', note: 'x'.repeat(1001) }, 'ownerUid');

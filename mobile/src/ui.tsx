@@ -12,6 +12,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import Svg, { Circle, Path } from 'react-native-svg';
+
 import { type Tone } from './logic';
 
 const light = {
@@ -151,6 +153,46 @@ export function Notice({ tone, text }: { tone: Tone; text: string }) {
 export function Muted({ children, style }: { children: ReactNode; style?: object }) {
   const t = useTheme();
   return <Text style={[{ color: t.ink2, fontSize: 13, lineHeight: 18 }, style]}>{children}</Text>;
+}
+
+/** Small rounded status label. Colour is never the only signal: it always carries text. */
+export function Chip({ label, tone = 'muted' }: { label: string; tone?: Tone }) {
+  const t = useTheme();
+  const c = toneColor(t, tone);
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: t.line, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 10, backgroundColor: t.bg }}>
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c }} />
+      <Text style={{ color: t.ink, fontSize: 13, fontWeight: '600' }}>{label}</Text>
+    </View>
+  );
+}
+
+export type IconName = 'tank' | 'history' | 'control' | 'settings' | 'logbook' | 'about';
+
+/** Line icons for the tab bar, drawn here so no icon font is needed. */
+export function Icon({ name, color, size = 22 }: { name: IconName; color: string; size?: number }) {
+  const line = { stroke: color, strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, fill: 'none' };
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      {name === 'tank' ? <Path {...line} d="M12 3C12 3 5.5 10 5.5 14.5a6.5 6.5 0 0 0 13 0C18.5 10 12 3 12 3Z" /> : null}
+      {name === 'history' ? <Path {...line} d="M4 20h16M4 16l5-5 4 3 7-8" /> : null}
+      {name === 'control' ? <Path {...line} d="M12 4v8M7.5 7.5a7 7 0 1 0 9 0" /> : null}
+      {name === 'settings' ? (
+        <>
+          <Path {...line} d="M4 7h9M19 7h1M4 17h1M11 17h9" />
+          <Circle {...line} cx={16} cy={7} r={2.5} />
+          <Circle {...line} cx={8} cy={17} r={2.5} />
+        </>
+      ) : null}
+      {name === 'logbook' ? <Path {...line} d="M6 4h11a1 1 0 0 1 1 1v15H7a1 1 0 0 1-1-1V4ZM9.5 8.5h5M9.5 12.5h5" /> : null}
+      {name === 'about' ? (
+        <>
+          <Circle {...line} cx={12} cy={12} r={9} />
+          <Path {...line} d="M12 11v5M12 7.6v.1" />
+        </>
+      ) : null}
+    </Svg>
+  );
 }
 
 export const styles = StyleSheet.create({

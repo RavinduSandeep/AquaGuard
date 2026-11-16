@@ -7,6 +7,7 @@
 
 #include "ag_config.h"
 #include "ag_safety.h"
+#include "ag_schedule.h"
 #include "ag_sensor.h"
 
 struct NetSettings {
@@ -19,6 +20,8 @@ struct NetSettings {
   String fbApiKey, fbDbUrl, fbEmail, fbPassword;
   bool sleepEnabled = false;     // power saving; only changeable from the local dashboard
   uint8_t sleepMinutes = 10;     // 1..60
+  String settingsPin = "4211";   // 4-8 digits; asked for when the phone app changes settings.
+                                 // Only changeable from the local dashboard, never published.
 };
 
 struct LogEntry {
@@ -70,7 +73,8 @@ ag::Deny cmdClose(Source src);
 ag::Deny cmdAck(Source src);
 ag::Deny cmdMute(Source src);
 // Apply a partial settings object. Returns nullptr or a reason string.
-const char* cmdSetConfig(JsonObjectConst patch, Source src);
+// A remote request must carry the settings PIN; local requests ignore `pin`.
+const char* cmdSetConfig(JsonObjectConst patch, Source src, const char* pin = nullptr);
 // Capture the calibration median into full/empty distance.
 const char* cmdCalibrate(bool full);
 

@@ -12,10 +12,12 @@ from anywhere.
 
 | Program | Version | Where it lives | Status |
 |---|---|---|---|
-| Firmware (ESP32-S3) | **0.3.0** | [`firmware/`](firmware/) | Flashed to a bare ESP32-S3 N16R8 and boots (setup Wi-Fi comes up); 41 logic tests pass; not yet run with the sensor, valve or interlock wired |
-| Phone app (Android, iOS, web) | **0.4.0** | [`mobile/`](mobile/) | Type-checks; 14 tests pass; bundles for all three; demo mode viewable in a browser; not yet run against a live unit |
-| Data schema (unit ↔ cloud ↔ app) | **1** | [`docs/firebase-setup.md`](docs/firebase-setup.md) | |
+| Firmware (ESP32-S3) | **0.5.0** | [`firmware/`](firmware/) | Bench-test build runs on a bare ESP32-S3 N16R8 and reports to Firebase; 54 logic tests pass; not yet run with the sensor, valve or interlock wired |
+| Phone app (Android, iOS, web) | **0.6.0** | [`mobile/`](mobile/) | Type-checks; 24 tests pass; shows live data from the bench unit; filling times and PIN checked in demo mode only; unit list checked in a browser with one real unit |
+| Data schema (unit ↔ cloud ↔ app) | **2** | [`docs/firebase-setup.md`](docs/firebase-setup.md) | Adds the supply schedule |
 | Project guide | 13 Nov 2026 | [`documents/`](documents/) | Hardware design, 21 pages |
+| Components and wiring sheet | 16 Nov 2026 | [PDF](documents/AquaGuard_Components_and_Wiring.pdf) | Parts list and wiring diagram, 2 pages, taken from the project guide |
+| Users and sharing guide | 16 Nov 2026 | [PDF](documents/AquaGuard_Users_and_Sharing_Guide.pdf) | Adding people and more units, 4 pages; the cases in it are not yet tried |
 
 Version numbers are kept in one file, [`versions.json`](versions.json), and
 copied into each program by `node scripts/sync-versions.mjs`. Every change is
@@ -24,7 +26,7 @@ listed in [`CHANGELOG.md`](CHANGELOG.md).
 ## What is in this repository
 
 ```
-documents/   Project guide: buying list, wiring, calibration, commissioning (.docx)
+documents/   Project guide (.docx), 2-page components and wiring sheet, users and sharing guide (PDF)
 firmware/    ESP32-S3 firmware (PlatformIO, Arduino C++) and the local web dashboard
 mobile/      Phone app (Expo / React Native, TypeScript)
 firebase/    Database access rules and their test
@@ -105,12 +107,27 @@ Alternatives considered and the reasons are in
 - Hardware validation of the firmware (sensor frames, interlocks, valve timing).
 - The Firebase rules test (`firebase/rules.test.mjs`) has not been run; it
   needs Java for the local emulator.
-- The Firebase project is set up (rules published, sign-in enabled) and the
-  app loads its configuration, but no one has signed in and no unit has
-  reported to it yet.
+- A bare board on bench-test firmware 0.5.0 reports to the live Firebase
+  project and the app shows its live data. No multi-user case has been tried.
+- Filling times and the settings PIN are tested as logic (firmware and app
+  tests) and in the app's demo. Saving them from the app to a real unit has
+  not been confirmed, and the unit has not been watched through a real
+  window opening and closing.
+- The updated database rules in `firebase/database.rules.json` (needed for a
+  viewer to save with the PIN, and to hide the command queue from other
+  members) are not yet published to the live project.
+- The settings PIN is 4 digits by default and shared: it limits who can
+  change settings among people who already have access, nothing more.
+- With the schedule on, a tank that runs low outside the filling time waits
+  for the next one; there is no automatic low-level override.
+- The app's list of units is kept on each phone, not in the account, so a
+  new phone starts empty. Switching was checked in a browser between the
+  bench unit and an ID with no unit behind it; a second real unit has not
+  been tried.
 - Power-saving sleep and firmware update over Wi-Fi have not been exercised
   on a board.
-- No supply schedule or water-board outage notices yet (researched, not built).
+- Water-board (NWSDB) outage notices are researched, not built. The schedule
+  has one window per day type; no per-date exceptions yet.
 - Root certificates for Firebase are embedded in the firmware; the earliest
   expires in January 2028 and they will need refreshing in a firmware update
   before then.
@@ -140,10 +157,8 @@ view. Details and emulator options are in [`mobile/README.md`](mobile/README.md)
 
 ## Latest update
 
-**13 November 2026: firmware 0.3.0, phone app 0.4.0.** Added a bench-test
-firmware build (`aquaguard_s3_sim`) so the dashboard, Firebase and the app can
-be tried on a bare ESP32-S3 with nothing wired: it simulates the tank level
-and healthy inputs and never drives the valve output. The app and dashboard
-label it clearly. It must not be installed on a wired unit. The same day,
-0.2.0 added the optional power-saving sleep. Details in
-[`CHANGELOG.md`](CHANGELOG.md).
+**16 November 2026: saved units with a quick switch.** App 0.6.0 keeps a
+list of the units you have connected to on the phone. Tap the tank name at
+the top to switch tanks, add another unit or remove one; each unit keeps its
+own settings, filling times and PIN. The firmware is unchanged at 0.5.0.
+Details in [`CHANGELOG.md`](CHANGELOG.md).

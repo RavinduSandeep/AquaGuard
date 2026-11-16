@@ -25,7 +25,8 @@ Run typecheck and tests before declaring a task done.
 
 ## Structure
 
-- `App.tsx`: sign-in, device pairing, and a simple state-driven tab bar. There
+- `App.tsx`: sign-in, device pairing, the saved list of units (switcher in
+  `src/screens/Units.tsx`), and a simple state-driven tab bar. There
   are six flat tabs and no deep links, so Expo Router is deliberately not used.
 - `src/logic.ts`: pure helpers (no React Native or Firebase imports) so they
   run under `node --test`. Put new testable logic here.

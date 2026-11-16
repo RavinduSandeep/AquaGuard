@@ -8,6 +8,7 @@
 
 #include "app.h"
 #include "cloud.h"
+#include "console.h"
 #include "control.h"
 #include "power.h"
 #include "storage.h"
@@ -18,6 +19,7 @@
 void setup() {
   control::holdValveClosed();  // before anything that can block or fail
 
+  Serial.setRxBufferSize(1024);
   Serial.begin(115200);
   Serial.printf("\nAquaGuard firmware %s (data schema %d)\n", AQUAGUARD_FW_VERSION, AQUAGUARD_DATA_SCHEMA);
   Serial.printf("Flash %u MB, PSRAM %u KB, reset reason %d\n",
@@ -38,6 +40,9 @@ void setup() {
   ui::begin();
   control::begin();
   webapi::begin(forceSetupAp);
+  // Clock time (UTC) for the supply schedule and the event log. Needs only
+  // Wi-Fi with internet; nothing waits for it.
+  configTime(0, 0, "pool.ntp.org", "time.google.com");
   cloud::begin();
 }
 
@@ -57,6 +62,7 @@ void loop() {
     storage::saveFaults(faults);
     stored = faults;
   }
+  console::loop();
   power::loop();  // may start a power-saving sleep; does not return if it does
   delay(5);
 }

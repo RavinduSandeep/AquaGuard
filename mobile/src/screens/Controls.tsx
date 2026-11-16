@@ -4,6 +4,7 @@ import { ScrollView, View } from 'react-native';
 import { sendCommand, type Command, type Live } from '../data';
 import { formatDuration, humanize } from '../logic';
 import { Button, Card, Muted, Notice, Row, styles } from '../ui';
+import { FillingTimes } from './Schedule';
 
 export function Controls({ deviceId, live }: { deviceId: string; live: Live }) {
   const { status, online } = live;
@@ -38,7 +39,7 @@ export function Controls({ deviceId, live }: { deviceId: string; live: Live }) {
   const blocker = status.valve.openBlocker;
 
   return (
-    <ScrollView contentContainerStyle={styles.screen}>
+    <ScrollView contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled">
       {!online ? <Notice tone="muted" text="Unit offline: requests cannot reach it" /> : null}
       {online && !remote ? (
         <Notice tone="warn" text="Remote control is switched off at the unit. Only Close and Mute work from here." />
@@ -57,6 +58,8 @@ export function Controls({ deviceId, live }: { deviceId: string; live: Live }) {
           Always accepted. In Auto it also switches to Manual so the unit does not reopen by itself. This is not the emergency stop: for an emergency use the red button on the unit.
         </Muted>
       </Card>
+
+      <FillingTimes deviceId={deviceId} live={live} />
 
       <Card title="Mode">
         <View style={styles.wrap}>

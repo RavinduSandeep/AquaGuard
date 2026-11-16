@@ -137,6 +137,7 @@
           <label>Device account e-mail<input name="fbEmail" type="email"></label>
           <label>Device account password <span id="hasFbPw"></span><input name="fbPassword" type="password" placeholder="unchanged" autocomplete="off"></label>
           <label>New administrator password<input name="newAdminPassword" type="password" placeholder="unchanged" autocomplete="new-password"></label>
+          <label>Settings PIN for the phone app (4 to 8 digits)<input name="settingsPin" inputmode="numeric" pattern="[0-9]{4,8}" autocomplete="off"></label>
         </div>
         <label><input type="checkbox" name="cloudEnabled">Send data to Firebase for the phone app</label>
         <label><input type="checkbox" name="remoteControl">Allow the phone app to change mode, open, acknowledge and edit settings (Close and Mute always work)</label>
@@ -273,7 +274,7 @@
     });
   }
 
-  const BOOLS = ['commissioned', 'autoRetry', 'buzzerEnabled'];
+  const BOOLS = ['commissioned', 'autoRetry', 'buzzerEnabled', 'scheduleEnabled'];
   const SKIP = ['schema', 'revision', 'valid'];
   async function loadConfig() {
     const r = await api('/api/config');
@@ -307,6 +308,7 @@
     f.wifiSsid.value = r.data.wifiSsid; f.fbDbUrl.value = r.data.fbDbUrl; f.fbEmail.value = r.data.fbEmail;
     f.cloudEnabled.checked = r.data.cloudEnabled; f.remoteControl.checked = r.data.remoteControl;
     f.sleepEnabled.checked = r.data.sleepEnabled; f.sleepMinutes.value = r.data.sleepMinutes;
+    f.settingsPin.value = r.data.settingsPin;
     $('hasWifi').textContent = r.data.hasWifiPass ? '(saved)' : '';
     $('hasKey').textContent = r.data.hasFbApiKey ? '(saved)' : '';
     $('hasFbPw').textContent = r.data.hasFbPassword ? '(saved)' : '';

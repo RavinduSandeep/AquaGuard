@@ -54,6 +54,13 @@ const char* validateConfig(const Config& c) {
   if (c.manualOpenMinutes < 1 || c.manualOpenMinutes > 15) return "MANUAL_OPEN_MINUTES";
   if (c.manualOpenMinutes > c.maximumFillMinutes) return "MANUAL_OPEN_ABOVE_MAX_FILL";
 
+  if (c.weekdayStartMin > 1439 || c.weekdayEndMin > 1439 || c.weekendStartMin > 1439 ||
+      c.weekendEndMin > 1439) {
+    return "SCHEDULE_TIME_RANGE";
+  }
+  if (c.weekdayStartMin == c.weekdayEndMin || c.weekendStartMin == c.weekendEndMin) return "SCHEDULE_WINDOW_EMPTY";
+  if (c.utcOffsetMinutes < -720 || c.utcOffsetMinutes > 840) return "UTC_OFFSET_RANGE";
+
   if (c.ledBrightnessPercent < 1 || c.ledBrightnessPercent > 100) return "LED_BRIGHTNESS";
   return nullptr;
 }

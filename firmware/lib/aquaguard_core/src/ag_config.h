@@ -45,6 +45,16 @@ struct Config {
   uint16_t maintenanceMinutes = 10;
   uint16_t manualOpenMinutes = 5;
 
+  // Supply schedule: when on, automatic filling starts only inside the
+  // window for the day, in local time. Minutes after midnight; a start after
+  // the end means the window runs past midnight.
+  bool scheduleEnabled = false;
+  uint16_t weekdayStartMin = 0;     // Monday to Friday, default 12:00 am
+  uint16_t weekdayEndMin = 480;     // 8:00 am
+  uint16_t weekendStartMin = 0;     // Saturday and Sunday
+  uint16_t weekendEndMin = 480;
+  int16_t utcOffsetMinutes = 330;   // local time = UTC + this (Sri Lanka: +5:30)
+
   // Indication
   uint8_t ledBrightnessPercent = 20;
   bool buzzerEnabled = true;

@@ -10,7 +10,7 @@ version is shown on the OLED at start-up, on the local dashboard, in
 `/api/status` (`fw`) and in the phone app's About tab.
 
 > **Status: boots on a bare board, not yet run with the hardware wired.** The
-> control logic passes 41 automated tests on a PC. The firmware was flashed to
+> control logic passes 54 automated tests on a PC. The firmware was flashed to
 > an ESP32-S3 DevKitC-1 N16R8 with nothing connected: it starts, reports
 > 16 MB flash and 8 MB PSRAM, and brings up its setup Wi-Fi. It has not been
 > tested with the real sensor, relay, float, emergency stop or valve. Follow guide section 16: keep the 12 V test
@@ -22,7 +22,7 @@ Install [PlatformIO](https://platformio.org/install) (VS Code extension, or `pip
 
 ```bash
 cd firmware
-pio test -e native               # 41 logic tests on your computer, no board needed
+pio test -e native               # 54 logic tests on your computer, no board needed
 pio run -e aquaguard_s3          # compile
 pio run -e aquaguard_s3 -t upload    # flash over USB
 pio device monitor               # startup log at 115200 baud
@@ -85,6 +85,49 @@ unit deep sleep between checks. It can only be switched on at the unit.
   next to the 12 V supply, relay, sensor and RS485 parts), so leave it off
   unless you have a reason such as battery backup.
 
+## Filling times and the settings PIN
+
+Set from the phone app's Control tab, or the Settings form on the local
+dashboard (`scheduleEnabled`, `weekdayStartMin`, `weekdayEndMin`,
+`weekendStartMin`, `weekendEndMin` in minutes after midnight,
+`utcOffsetMinutes`, default 330 for Sri Lanka).
+
+| Situation | What the unit does |
+|---|---|
+| Schedule off | Fills whenever the level reaches the start threshold |
+| Inside the window, level at or below start | Starts a fill |
+| Outside the window, level at or below start | Waits; status shows `WAITING_FOR_SUPPLY_WINDOW` |
+| Window ends during an automatic fill | Closes the valve, no fault; continues in the next window if still at or below start |
+| Manual open | Not affected by the schedule |
+| No clock time (no internet since power-up) | Schedule not applied; warning `SCHEDULE_CLOCK_UNKNOWN` |
+
+The clock comes from NTP over Wi-Fi and is kept through a power-saving sleep,
+but not through a power cut.
+
+The **settings PIN** (default `4211`) is asked for by the phone app before
+any settings change. Change it under *Network and remote access* on the local
+dashboard. It is a convenience lock for people you have already given access
+to the unit, not a strong secret: change the default.
+
+Tested so far: the logic (13 tests) and, in the app's demo, the screens. The
+schedule and PIN have not yet been exercised end to end on a board.
+
+## Set up over USB (no setup Wi-Fi needed)
+
+If you cannot use the setup access point, send the network settings down the
+USB cable instead:
+
+```bash
+cp firmware/provision.example.json firmware/provision.local.json   # then fill it in
+python scripts/provision.py            # add --bench-arm on the bench-test build
+```
+
+`provision.local.json` is git-ignored. The script sends it to the unit, which
+saves it, restarts, and prints its address once it joins your Wi-Fi. The unit
+never prints passwords back. The same console answers `status`. Anyone with
+access to the USB port could already replace the firmware, so this gives no
+new access; it cannot open the valve or change calibration.
+
 ## First start
 
 1. Power the board. With no Wi-Fi stored it starts a setup access point
@@ -145,6 +188,7 @@ The numbers above are the defaults from guide section 13 and are editable in Set
 | `src/storage.cpp` | Settings (JSON + CRC) and network settings in NVS; password hashing |
 | `src/ui.cpp` | OLED, eight WS2812 pixels, buzzer patterns, ACK button |
 | `src/webapi.cpp` | Wi-Fi, setup access point, REST + SSE API, OTA upload |
+| `src/console.cpp` | USB serial console: `status` and `provision` |
 | `src/power.cpp` | Optional deep sleep between checks, and re-arming after such a sleep |
 | `src/cloud.cpp` | Optional Firebase sync task (status, history, events, commands) |
 | `web/index.html` | Local dashboard, embedded in the firmware image |
@@ -201,6 +245,18 @@ open to anyone on your home network; keep the unit off guest networks.
   healthy. The option is off by default.
 - **Startup log on the native USB port** (`ARDUINO_USB_CDC_ON_BOOT`), not UART0.
 - **No optional smoothing stage** after the median and rate check.
+
+- **Supply schedule added** (off by default). The guide fills whenever the
+  level reaches the start threshold. With the schedule on, an automatic fill
+  starts only inside the weekday or weekend window (local time from NTP and
+  `utcOffsetMinutes`), and one that is running when the window ends is
+  stopped without a fault. Manual open, every interlock and every fault are
+  unchanged. If the unit has no clock time the schedule is not applied (the
+  unit fills as the guide describes) and a warning is shown.
+- **Settings PIN added.** A settings change from the phone app must carry a
+  4 to 8 digit PIN (default `4211`). Five wrong PINs in a row block further
+  attempts for 5 minutes. The PIN is changed on the local dashboard only.
+  Calibration, commissioning and the remote-control switch remain local-only.
 
 ## Before trusting it with water
 

@@ -1,49 +1,79 @@
 import { ScrollView, Text, View } from 'react-native';
 
 import { type Live } from '../data';
-import { formatDuration, headline, humanize, levelIsCurrent } from '../logic';
-import { Card, Muted, Notice, Row, styles, useTheme } from '../ui';
+import { describeWindow, formatDuration, headline, humanize, levelIsCurrent, scheduleFromConfig, unitClock } from '../logic';
+import { Button, Card, Chip, Muted, Notice, Row, styles, useTheme } from '../ui';
 
-function Tank({ percent, current }: { percent: number; current: boolean }) {
+const TANK_HEIGHT = 176;
+
+/** The tank, with the start and stop levels marked on its side. */
+function Tank({ percent, current, start, stop }: { percent: number; current: boolean; start?: number; stop?: number }) {
   const t = useTheme();
+  const mark = (value: number | undefined, label: string) =>
+    value === undefined ? null : (
+      <View style={{ position: 'absolute', left: 0, right: 0, bottom: (value / 100) * TANK_HEIGHT - 8, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+        <View style={{ width: 104, height: 2, backgroundColor: t.ink2, opacity: 0.55 }} />
+        <Text style={{ color: t.ink2, fontSize: 11 }}>{label}</Text>
+      </View>
+    );
   return (
-    <View
-      style={{ width: 96, height: 168, borderWidth: 3, borderColor: t.ink, borderRadius: 12, overflow: 'hidden', justifyContent: 'flex-end' }}
-      accessibilityLabel={current ? `Tank ${Math.round(percent)} percent full` : 'Tank level unknown'}
-    >
-      <View style={{ height: `${Math.max(0, Math.min(100, percent))}%`, backgroundColor: current ? t.water : t.line }} />
+    <View style={{ width: 150, height: TANK_HEIGHT }}>
+      <View
+        style={{ width: 104, height: TANK_HEIGHT, borderWidth: 3, borderColor: t.ink, borderRadius: 14, overflow: 'hidden', justifyContent: 'flex-end', backgroundColor: t.bg }}
+        accessibilityLabel={current ? `Tank ${Math.round(percent)} percent full` : 'Tank level unknown'}
+      >
+        <View style={{ height: `${Math.max(0, Math.min(100, percent))}%`, backgroundColor: current ? t.water : t.line }} />
+      </View>
+      {mark(stop, `stop ${stop}%`)}
+      {mark(start, `start ${start}%`)}
     </View>
   );
 }
 
-export function Dashboard({ live }: { live: Live }) {
+export function Dashboard({ live, onOpenControl }: { live: Live; onOpenControl?: () => void }) {
   const t = useTheme();
-  const { status, online, serverNow } = live;
+  const { status, config, online, serverNow } = live;
   const current = levelIsCurrent(status, online);
   const level = status?.level;
   const head = headline(status, online, serverNow);
   const lastSeen = status?.updatedAt ? formatDuration((serverNow - status.updatedAt) / 1000) : null;
+  const start = config?.startFillPercent !== undefined ? Number(config.startFillPercent) : undefined;
+  const stop = config?.stopFillPercent !== undefined ? Number(config.stopFillPercent) : undefined;
+
+  const schedule = scheduleFromConfig(config);
+  const clock = unitClock(serverNow, Number(config?.utcOffsetMinutes ?? 330));
+  const weekend = clock.dayOfWeek === 0 || clock.dayOfWeek === 6;
+  const todayWindow = schedule
+    ? weekend
+      ? describeWindow(schedule.weekendStart, schedule.weekendEnd)
+      : describeWindow(schedule.weekdayStart, schedule.weekdayEnd)
+    : null;
 
   return (
     <ScrollView contentContainerStyle={styles.screen}>
       <Card>
-        <View style={{ flexDirection: 'row', gap: 20, alignItems: 'center' }}>
-          <Tank percent={level?.percent ?? 0} current={current} />
+        <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+          <Tank percent={level?.percent ?? 0} current={current} start={start} stop={stop} />
           <View style={{ flex: 1, gap: 2 }}>
-            <Text style={{ color: t.ink, fontSize: 64, fontWeight: '800', fontVariant: ['tabular-nums'], lineHeight: 70 }}>
+            <Text style={{ color: t.ink, fontSize: 60, fontWeight: '800', fontVariant: ['tabular-nums'], lineHeight: 66 }}>
               {current ? `${Math.round(level!.percent!)}%` : '--%'}
             </Text>
             <Text style={{ color: t.ink2, fontSize: 15 }}>
               {current ? `about ${level!.litres} L (estimate)` : 'Current level unknown'}
             </Text>
             {!current && level?.percent !== undefined ? (
-              <Text style={{ color: t.ink2, fontSize: 13 }}>
-                Last trusted reading: {Math.round(level.percent)}%
-              </Text>
+              <Text style={{ color: t.ink2, fontSize: 13 }}>Last trusted reading: {Math.round(level.percent)}%</Text>
             ) : null}
           </View>
         </View>
         <Notice tone={head.tone} text={head.text} />
+        {status && online ? (
+          <View style={styles.wrap}>
+            <Chip tone={status.valve.commanded ? 'info' : 'muted'} label={status.valve.commanded ? 'Valve open (commanded)' : 'Valve closed'} />
+            <Chip tone={status.mode === 'AUTO' ? 'ok' : 'warn'} label={`${status.mode.charAt(0)}${status.mode.slice(1).toLowerCase()} mode`} />
+            <Chip tone={status.armed ? 'ok' : 'warn'} label={status.armed ? 'Armed' : 'Disarmed'} />
+          </View>
+        ) : null}
         {status?.simulated ? (
           <Notice tone="warn" text="Bench-test firmware: the level and inputs are simulated and the valve output is disabled" />
         ) : null}
@@ -62,14 +92,34 @@ export function Dashboard({ live }: { live: Live }) {
             </Card>
           ) : null}
 
-          <Card title="Control">
-            <Row label="Mode" value={status.mode} />
-            <Row label="State" value={humanize(status.phase)} />
+          {schedule ? (
+            <Card title="Filling times">
+              {schedule.enabled ? (
+                <>
+                  <Row label={weekend ? 'Today (weekend)' : 'Today (weekday)'} value={todayWindow ?? ''} />
+                  {status.schedule && online ? (
+                    <Row
+                      label="Right now"
+                      value={!status.schedule.clockKnown ? 'No clock time: not applied' : status.schedule.waiting ? 'Low: waiting for the next time' : status.schedule.open ? 'Inside a filling time' : 'Outside the filling times'}
+                      tone={!status.schedule.clockKnown ? 'warn' : status.schedule.waiting ? 'info' : status.schedule.open ? 'ok' : undefined}
+                    />
+                  ) : null}
+                </>
+              ) : (
+                <Muted>Off: the unit fills at any time the level drops to the start point.</Muted>
+              )}
+              {onOpenControl ? <Button label="Change filling times" onPress={onOpenControl} /> : null}
+            </Card>
+          ) : null}
+
+          <Card title="Filling">
             <Row
               label="Valve (commanded)"
-              value={status.valve.commanded ? `OPEN for ${formatDuration(status.valve.fillRuntimeS)}` : 'CLOSED'}
+              value={status.valve.commanded ? `Open for ${formatDuration(status.valve.fillRuntimeS)}` : 'Closed'}
               tone={status.valve.commanded ? 'info' : undefined}
             />
+            <Row label="State" value={humanize(status.phase)} />
+            {start !== undefined && stop !== undefined ? <Row label="Fills from / to" value={`${start}% / ${stop}%`} /> : null}
             <Row label="Opening blocked by" value={humanize(status.valve.openBlocker)} />
             <Row label="Fills since power-up" value={String(status.valve.fillCount)} />
             {status.valve.lastFillS ? <Row label="Last fill took" value={formatDuration(status.valve.lastFillS)} /> : null}

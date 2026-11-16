@@ -168,7 +168,15 @@ export type CommandResult = { ok: boolean; reason?: string };
 export type Command =
   | { type: 'close' | 'open' | 'ack' | 'mute' }
   | { type: 'setMode'; mode: 'AUTO' | 'MANUAL' | 'MAINTENANCE' }
-  | { type: 'setConfig'; config: DeviceConfig };
+  | { type: 'setConfig'; config: DeviceConfig; pin: string };
+
+// The settings PIN is kept only in memory, after the unit has accepted it, so
+// it is not asked for again until the app is closed.
+let rememberedPin: string | null = null;
+export const getRememberedPin = () => rememberedPin;
+export const rememberPin = (pin: string | null) => {
+  rememberedPin = pin;
+};
 
 /**
  * Writes a request for the unit and waits for its answer. The unit decides:
@@ -180,7 +188,12 @@ export async function sendCommand(deviceId: string, command: Command, timeoutMs 
   const { auth } = fb();
   const request = push(path(deviceId, 'commands'));
   const answer = path(deviceId, `results/${request.key}`);
-  await set(request, { ...command, ts: serverTimestamp(), uid: auth.currentUser?.uid ?? '' });
+  try {
+    await set(request, { ...command, ts: serverTimestamp(), uid: auth.currentUser?.uid ?? '' });
+  } catch (e) {
+    if (/permission/i.test(e instanceof Error ? e.message : '')) return { ok: false, reason: 'PERMISSION_DENIED' };
+    throw e;
+  }
 
   return new Promise<CommandResult>((resolve) => {
     let done = false;

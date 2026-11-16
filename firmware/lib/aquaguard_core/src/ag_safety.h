@@ -48,6 +48,7 @@ enum class Deny : uint8_t {
   LocalAckRequired,  // emergency stop must be acknowledged at the unit
   RemoteDisabled,
   BadRequest,
+  OutsideSchedule,   // automatic fill ended because the supply window closed
 };
 
 enum class Event : uint8_t {
@@ -78,6 +79,9 @@ struct SafetyInputs {
   bool levelValid = false;     // trusted level exists and is not stale
   float levelPercent = 0.0f;   // only meaningful when levelValid
   bool sensorCritical = false; // invalid-opportunity count reached faultCount
+  // True while the supply schedule forbids automatic filling. It never blocks
+  // a manual open and never raises a fault.
+  bool outsideSchedule = false;
 };
 
 using EventSink = void (*)(void* ctx, Event e, int32_t arg);
@@ -131,6 +135,8 @@ class SafetyManager {
   Deny lastDeny() const { return lastDeny_; }
   // Why OPEN would be refused right now (None = it would be accepted).
   Deny openBlocker() const;
+  // AUTO would start a fill now, but the supply schedule says wait.
+  bool waitingForSchedule() const;
 
   uint32_t fillRuntimeS(uint32_t nowMs) const;
   uint32_t manualRemainingS(uint32_t nowMs) const;

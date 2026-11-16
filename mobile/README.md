@@ -6,9 +6,10 @@ It shows the tank from anywhere through Firebase and is where you enter data.
 Version: see [`../versions.json`](../versions.json) (`mobile`). The app's About
 tab shows the app version, the unit's firmware version and the data schema of both.
 
-> **Status:** type-checks, passes its 14 unit tests and bundles for Android, iOS
-> and web. The screens were checked in a browser with sample data. It has not
-> yet been run against a real Firebase project or a real unit.
+> **Status:** type-checks and passes its 21 unit tests. The screens were
+> checked in a browser with sample data, and the Tank and Control tabs were
+> seen showing live data from a bench-test unit. Saving settings or filling
+> times to a real unit has not been confirmed yet.
 
 ## Tabs
 
@@ -16,12 +17,37 @@ tab shows the app version, the unit's firmware version and the data schema of bo
 |---|---|
 | **Tank** | Level, estimated litres, state banner, valve command, float / emergency stop / K1, reading age |
 | **History** | Level chart for 24 hours, 3 days or 7 days with fill periods shaded, table view, event list |
-| **Control** | Close, mode, time-limited manual open, acknowledge, mute. The unit decides and its refusal reason is shown |
-| **Settings** | Data entry for tank name, capacity, thresholds, fill supervision, indication. Calibration is read-only here |
+| **Control** | Close, **filling times**, mode, time-limited manual open, acknowledge, mute. The unit decides and its refusal reason is shown |
+| **Settings** | Data entry for tank name, capacity, thresholds, fill supervision, indication. Calibration is read-only here. Saving asks for the settings PIN |
 | **Logbook** | Data entry for monthly and quarterly checks, notes, and the installation record |
 | **About** | Versions, connection state, sign out |
 
-The sign-in screen also has **Open the demo with sample data**.
+### Filling times and the settings PIN
+
+On the Control tab, switch on **Fill only when the supply is on** and set
+when the water comes on and goes off, separately for weekdays and weekends
+(15-minute or 1-hour steps; a time that runs past midnight is fine). The bar
+shows the day from midnight to midnight with the filling time shaded and a
+mark at the time now.
+
+Saving filling times or settings asks for the unit's **settings PIN**
+(default 4211; the owner changes it on the unit's own page). Once the unit
+has accepted the PIN it is not asked for again until the app is closed.
+Anyone who is a member of the unit and knows the PIN can save, including a
+member with the `viewer` role.
+
+Sign in with the **owner** account, not the unit's device account: the
+device account can see the tank but every request it sends is refused.
+
+The sign-in screen also has **Open the demo with sample data** (demo PIN 4211).
+
+### More than one unit
+
+Tap the tank name at the top to open **Your units**: switch to another unit,
+add one by its Device ID, or remove one from this phone. The list is stored
+on the phone only (up to 12 units) and does not grant access: an account
+still has to be a member of a unit to see it. Each unit has its own settings,
+filling times and settings PIN.
 
 When the unit is offline or its reading is stale, the level is shown as
 unknown with the last trusted value labelled as such.

@@ -4,6 +4,17 @@ import { test } from 'node:test';
 
 import {
   buildPatch,
+  describeWindow,
+  formatClock,
+  formatUtcOffset,
+  pinLooksValid,
+  scheduleAllows,
+  scheduleFromConfig,
+  schedulePatch,
+  stepClock,
+  unitClock,
+  windowSegments,
+  type Schedule,
   dayKeys,
   draftFromConfig,
   formatDuration,
@@ -12,7 +23,12 @@ import {
   humanize,
   isOnline,
   levelIsCurrent,
+  MAX_SAVED_UNITS,
   normalizeDeviceId,
+  parseSavedUnits,
+  removeUnit,
+  unitLabel,
+  upsertUnit,
   parseDay,
   splitAtGaps,
   summarize,
@@ -196,4 +212,102 @@ test('normalizeDeviceId', () => {
   assert.equal(normalizeDeviceId(' AG-1A2B3C '), 'ag-1a2b3c');
   assert.equal(normalizeDeviceId('ag-12'), null);
   assert.equal(normalizeDeviceId('../users'), null);
+});
+
+const nights: Schedule = { enabled: true, weekdayStart: 0, weekdayEnd: 480, weekendStart: 0, weekendEnd: 480 };
+
+test('clock times are shown in 12-hour form', () => {
+  assert.equal(formatClock(0), '12:00 am');
+  assert.equal(formatClock(480), '8:00 am');
+  assert.equal(formatClock(720), '12:00 pm');
+  assert.equal(formatClock(810), '1:30 pm');
+  assert.equal(formatClock(1439), '11:59 pm');
+  assert.equal(stepClock(0, -30), 1410);
+  assert.equal(stepClock(1425, 30), 15);
+});
+
+test('a filling time is described, including one that runs past midnight', () => {
+  assert.equal(describeWindow(0, 480), '12:00 am to 8:00 am (8 h)');
+  assert.equal(describeWindow(1320, 330), '10:00 pm to 5:30 am next day (7 h 30 min)');
+  assert.deepEqual(windowSegments(360, 720), [{ from: 0.25, to: 0.5 }]);
+  assert.deepEqual(windowSegments(1080, 360), [{ from: 0, to: 0.25 }, { from: 0.75, to: 1 }]);
+  assert.deepEqual(windowSegments(1080, 0), [{ from: 0.75, to: 1 }]);
+});
+
+test('the schedule rule matches the unit', () => {
+  assert.equal(scheduleAllows({ ...nights, enabled: false }, 3, 800), true);
+  assert.equal(scheduleAllows(nights, 3, 479), true);
+  assert.equal(scheduleAllows(nights, 3, 480), false);
+  const late: Schedule = { enabled: true, weekdayStart: 1320, weekdayEnd: 300, weekendStart: 540, weekendEnd: 660 };
+  assert.equal(scheduleAllows(late, 4, 1380), true);
+  assert.equal(scheduleAllows(late, 6, 240), true); // Saturday early: Friday's window
+  assert.equal(scheduleAllows(late, 0, 240), false); // Sunday early: Saturday's did not wrap
+  assert.equal(scheduleAllows(late, 6, 600), true);
+});
+
+test('the unit clock follows its UTC offset', () => {
+  const mondayUtc = Date.UTC(2026, 10, 16, 0, 0);
+  assert.deepEqual(unitClock(mondayUtc, 330), { dayOfWeek: 1, minuteOfDay: 330 });
+  assert.deepEqual(unitClock(mondayUtc, -60), { dayOfWeek: 0, minuteOfDay: 1380 });
+  assert.equal(formatUtcOffset(330), 'UTC+5:30');
+  assert.equal(formatUtcOffset(-480), 'UTC-8');
+  assert.equal(formatUtcOffset(0), 'UTC+0');
+});
+
+test('schedule changes become a patch of only what changed', () => {
+  const config: DeviceConfig = { scheduleEnabled: false, weekdayStartMin: 0, weekdayEndMin: 480, weekendStartMin: 0, weekendEndMin: 480 };
+  assert.equal(scheduleFromConfig({ tankName: 'old firmware' }), null);
+  const current = scheduleFromConfig(config)!;
+  assert.deepEqual(schedulePatch(config, current).patch, {});
+  assert.deepEqual(schedulePatch(config, { ...current, enabled: true, weekendEnd: 600 }).patch, { scheduleEnabled: true, weekendEndMin: 600 });
+  assert.match(schedulePatch(config, { ...current, weekdayEnd: 0 }).error!, /Weekdays/);
+});
+
+test('the PIN must be 4 to 8 digits', () => {
+  assert.equal(pinLooksValid('4211'), true);
+  assert.equal(pinLooksValid('12345678'), true);
+  assert.equal(pinLooksValid('421'), false);
+  assert.equal(pinLooksValid('42 11'), false);
+  assert.equal(pinLooksValid('abcd'), false);
+});
+
+test('waiting for a filling time is the headline', () => {
+  const waiting = { ...baseStatus, schedule: { clockKnown: true, open: false, waiting: true } };
+  assert.equal(headline(waiting, true).tone, 'info');
+  assert.match(headline(waiting, true).text, /waiting for the next filling time/);
+});
+
+test('saved units: stored list is read defensively', () => {
+  assert.deepEqual(parseSavedUnits(null), []);
+  assert.deepEqual(parseSavedUnits('not json'), []);
+  assert.deepEqual(parseSavedUnits('{"id":"ag-1a2b3c"}'), []);
+  assert.deepEqual(
+    parseSavedUnits(JSON.stringify([{ id: 'AG-1A2B3C', name: ' Roof tank ' }, { id: '../users' }, { id: 'ag-1a2b3c', name: 'Twice' }, 7, { id: 'ag-000002' }])),
+    [
+      { id: 'ag-1a2b3c', name: 'Roof tank' },
+      { id: 'ag-000002', name: '' },
+    ],
+  );
+});
+
+test('saved units: add, rename, remove', () => {
+  let list = upsertUnit([], 'ag-000001', 'Roof tank');
+  list = upsertUnit(list, 'ag-000002');
+  assert.deepEqual(list.map(unitLabel), ['Roof tank', 'ag-000002']);
+
+  // A unit that has not reported yet never wipes a saved name.
+  assert.equal(upsertUnit(list, 'ag-000001'), list);
+  assert.equal(upsertUnit(list, 'ag-000001', 'Roof tank'), list);
+
+  list = upsertUnit(list, 'ag-000002', 'Garden tank');
+  assert.deepEqual(list.map(unitLabel), ['Roof tank', 'Garden tank']); // order kept
+
+  list = removeUnit(list, 'ag-000001');
+  assert.deepEqual(list, [{ id: 'ag-000002', name: 'Garden tank' }]);
+});
+
+test('saved units: the list is capped', () => {
+  let list: ReturnType<typeof parseSavedUnits> = [];
+  for (let i = 0; i < MAX_SAVED_UNITS + 3; i++) list = upsertUnit(list, `ag-${i.toString(16).padStart(6, '0')}`);
+  assert.equal(list.length, MAX_SAVED_UNITS);
 });

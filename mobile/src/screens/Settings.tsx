@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { ScrollView, Switch, Text, View } from 'react-native';
 
-import { sendCommand, type Live } from '../data';
-import { buildPatch, draftFromConfig, humanize, SETTINGS, type Draft } from '../logic';
+import { type Live } from '../data';
+import { buildPatch, draftFromConfig, SETTINGS, type Draft } from '../logic';
+import { useSettingsSave } from '../pin';
 import { Button, Card, Field, Muted, Notice, styles, useTheme } from '../ui';
 
 export function Settings({ deviceId, live }: { deviceId: string; live: Live }) {
@@ -10,8 +11,8 @@ export function Settings({ deviceId, live }: { deviceId: string; live: Live }) {
   const { config, status, online } = live;
   const [draft, setDraft] = useState<Draft | null>(null);
   const [revision, setRevision] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const saver = useSettingsSave(deviceId);
+  const { busy, result } = saver;
 
   // Load the form from the unit, and reload whenever the unit reports a change.
   useEffect(() => {
@@ -32,20 +33,6 @@ export function Settings({ deviceId, live }: { deviceId: string; live: Live }) {
   const built = buildPatch(config, draft);
   const changed = built.patch ? Object.keys(built.patch).length : 0;
   const remote = status?.remoteControl ?? false;
-
-  const save = async () => {
-    if (!built.patch) return;
-    setBusy(true);
-    setResult(null);
-    try {
-      const r = await sendCommand(deviceId, { type: 'setConfig', config: built.patch });
-      setResult({ ok: r.ok, text: r.ok ? 'Saved on the unit' : `Refused by the unit: ${humanize(r.reason)}` });
-    } catch (e) {
-      setResult({ ok: false, text: e instanceof Error ? e.message : 'Could not send the settings' });
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <ScrollView contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled">
@@ -89,15 +76,20 @@ export function Settings({ deviceId, live }: { deviceId: string; live: Live }) {
 
       {built.error ? <Notice tone="warn" text={built.error} /> : null}
       {result ? <Notice tone={result.ok ? 'ok' : 'bad'} text={result.text} /> : null}
-      <Button
-        kind="primary"
-        label={changed ? `Save ${changed} change${changed === 1 ? '' : 's'} to the unit` : 'No changes'}
-        busy={busy}
-        disabled={!changed || !online || !remote}
-        onPress={save}
-      />
-      <Button label="Discard changes" disabled={!changed && !built.error} onPress={() => setDraft(draftFromConfig(config))} />
-      <Muted>The unit checks every value again and closes the valve while settings change. A fill in progress is ended.</Muted>
+      {saver.prompt}
+      {saver.asking ? null : (
+        <>
+          <Button
+            kind="primary"
+            label={changed ? `Save ${changed} change${changed === 1 ? '' : 's'} to the unit` : 'No changes'}
+            busy={busy}
+            disabled={!changed || !online || !remote}
+            onPress={() => built.patch && saver.request(built.patch)}
+          />
+          <Button label="Discard changes" disabled={(!changed && !built.error) || busy} onPress={() => setDraft(draftFromConfig(config))} />
+        </>
+      )}
+      <Muted>Saving asks for the settings PIN. The unit checks every value again and closes the valve while settings change. A fill in progress is ended. Filling times are on the Control tab.</Muted>
     </ScrollView>
   );
 }

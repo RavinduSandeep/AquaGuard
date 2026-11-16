@@ -54,6 +54,7 @@ const char* denyName(Deny d) {
     case Deny::LocalAckRequired: return "LOCAL_ACK_REQUIRED";
     case Deny::RemoteDisabled: return "REMOTE_DISABLED";
     case Deny::BadRequest: return "BAD_REQUEST";
+    case Deny::OutsideSchedule: return "OUTSIDE_SCHEDULE";
   }
   return "UNKNOWN";
 }
@@ -169,6 +170,11 @@ Deny SafetyManager::openBlocker() const {
   return Deny::None;
 }
 
+bool SafetyManager::waitingForSchedule() const {
+  return !valveOpen_ && mode_ == Mode::Auto && in_.outsideSchedule && in_.levelValid &&
+         in_.levelPercent <= cfg_.startFillPercent && openBlocker() == Deny::None;
+}
+
 Phase SafetyManager::phase() const {
   if (faults_) return Phase::Fault;
   if (!armed_) return Phase::Disarmed;
@@ -244,6 +250,10 @@ void SafetyManager::tick(uint32_t nowMs, const SafetyInputs& in) {
       endFill(nowMs, Deny::FillTimeout, false);
     } else if (manualFill_ && reached(nowMs, manualDeadlineMs_)) {
       endFill(nowMs, Deny::None, true);
+    } else if (!manualFill_ && in.outsideSchedule) {
+      // The supply window closed: stop cleanly instead of waiting for a
+      // no-progress fault. The next window resumes from the start threshold.
+      endFill(nowMs, Deny::OutsideSchedule, false);
     } else {
       if (in.levelPercent >= progressRefPercent_ + cfg_.minRisePercent) {
         progressRefPercent_ = in.levelPercent;
@@ -280,7 +290,7 @@ void SafetyManager::tick(uint32_t nowMs, const SafetyInputs& in) {
   if (retryWait_ && reached(nowMs, retryAtMs_)) retryWait_ = false;
 
   // ---- 4. Automatic start with hysteresis: open at start, close at stop.
-  if (!valveOpen_ && mode_ == Mode::Auto && !retryWait_ &&
+  if (!valveOpen_ && mode_ == Mode::Auto && !retryWait_ && !in.outsideSchedule &&
       in.levelValid && in.levelPercent <= cfg_.startFillPercent &&
       openBlocker() == Deny::None) {
     startFill(nowMs, false);

@@ -3,7 +3,7 @@
 // The simulation is deliberately simple and is NOT the firmware's logic.
 import { useEffect, useState } from 'react';
 
-import type { DeviceConfig, DeviceEvent, DeviceStatus, HistoryPoint } from './logic';
+import { scheduleAllows, scheduleFromConfig, unitClock, type DeviceConfig, type DeviceEvent, type DeviceStatus, type HistoryPoint } from './logic';
 
 export const DEMO_DEVICE_ID = 'ag-de0001';
 
@@ -38,6 +38,7 @@ function reset() {
     maximumFillMinutes: 120, progressWindowMinutes: 10, minRisePercent: 1, noProgressStopMinutes: 20,
     autoRetry: false, retryMinutes: 30, manualOpenMinutes: 5, maintenanceMinutes: 10,
     ledBrightnessPercent: 20, buzzerEnabled: true,
+    scheduleEnabled: false, weekdayStartMin: 0, weekdayEndMin: 480, weekendStartMin: 0, weekendEndMin: 480, utcOffsetMinutes: -new Date().getTimezoneOffset(),
     fullDistanceCm: 35, emptyDistanceCm: 145, validDistanceMinCm: 30, validDistanceMaxCm: 600, commissioned: true,
   };
 
@@ -57,7 +58,7 @@ function reset() {
   const last = history[history.length - 1];
 
   status = {
-    schema: 1, fw: '0.1.0', deviceId: DEMO_DEVICE_ID, tankName: String(config.tankName),
+    schema: 2, fw: '0.5.0', deviceId: DEMO_DEVICE_ID, tankName: String(config.tankName),
     uptimeS: 3 * 86_400, ts: Math.floor(now / 1000), updatedAt: now,
     level: { valid: true, percent: last.p, litres: Math.round(last.p * 10), distanceCm: 145 - last.p * 1.1, ageMs: 200 },
     mode: 'AUTO', phase: last.v ? 'FILLING' : 'IDLE', armed: true, commissioned: true, remoteControl: true, muted: false,
@@ -100,9 +101,20 @@ function blocker(): string {
   return 'NONE';
 }
 
+export const DEMO_PIN = '4211';
+
+function windowOpen(now: number): boolean {
+  const schedule = scheduleFromConfig(config);
+  if (!schedule) return true;
+  const clock = unitClock(now, Number(config.utcOffsetMinutes));
+  return scheduleAllows(schedule, clock.dayOfWeek, clock.minuteOfDay);
+}
+
 // Runs much faster than a real tank so there is something to watch.
 function tick() {
   const now = Date.now();
+  const open = windowOpen(now);
+  if (status.valve.commanded && !manualUntil && !open) setValve(false);
   let p = status.level?.percent ?? 50;
   p += status.valve.commanded ? 0.6 : -0.08;
   p = Math.max(0, Math.min(100, p));
@@ -114,13 +126,17 @@ function tick() {
     addEvent('FILL_COMPLETE');
   }
   status.level = { valid: true, percent: Math.round(p * 10) / 10, litres: Math.round((p / 100) * Number(config.usableCapacityLitres)), distanceCm: Math.round((145 - p * 1.1) * 10) / 10, ageMs: 200 };
-  if (!status.valve.commanded && status.mode === 'AUTO' && status.armed && p <= Number(config.startFillPercent)) setValve(true);
+  const wantsFill = !status.valve.commanded && status.mode === 'AUTO' && status.armed && p <= Number(config.startFillPercent);
+  if (wantsFill && open) setValve(true);
+  const waiting = wantsFill && !open;
   status = {
     ...status,
     tankName: String(config.tankName),
     updatedAt: now,
     uptimeS: Math.round((now - bootedAt) / 1000),
     phase: !status.armed ? 'DISARMED' : status.valve.commanded ? 'FILLING' : 'IDLE',
+    schedule: config.scheduleEnabled ? { clockKnown: true, open, waiting } : undefined,
+    warnings: waiting ? ['WAITING_FOR_SUPPLY_WINDOW'] : [],
     valve: {
       ...status.valve,
       fillRuntimeS: status.valve.commanded ? Math.round((now - fillStartedAt) / 1000) : 0,
@@ -187,7 +203,7 @@ export function useDemoRecord() {
   };
 }
 
-export async function demoCommand(command: { type: string; mode?: string; config?: DeviceConfig }) {
+export async function demoCommand(command: { type: string; mode?: string; config?: DeviceConfig; pin?: string }) {
   await new Promise((r) => setTimeout(r, 600)); // feel like a round trip
   let reason: string | undefined;
   switch (command.type) {
@@ -213,6 +229,10 @@ export async function demoCommand(command: { type: string; mode?: string; config
       addEvent('MODE_CHANGED', command.mode);
       break;
     case 'setConfig':
+      if (command.pin !== DEMO_PIN) {
+        reason = 'WRONG_PIN';
+        break;
+      }
       setValve(false);
       config = { ...config, ...command.config, revision: Number(config.revision) + 1 };
       addEvent('CONFIG_CHANGED');

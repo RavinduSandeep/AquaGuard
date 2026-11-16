@@ -79,6 +79,12 @@ void configToJson(const ag::Config& c, JsonObject o) {
   o["floatClearDelaySeconds"] = c.floatClearDelaySeconds;
   o["maintenanceMinutes"] = c.maintenanceMinutes;
   o["manualOpenMinutes"] = c.manualOpenMinutes;
+  o["scheduleEnabled"] = c.scheduleEnabled;
+  o["weekdayStartMin"] = c.weekdayStartMin;
+  o["weekdayEndMin"] = c.weekdayEndMin;
+  o["weekendStartMin"] = c.weekendStartMin;
+  o["weekendEndMin"] = c.weekendEndMin;
+  o["utcOffsetMinutes"] = c.utcOffsetMinutes;
   o["ledBrightnessPercent"] = c.ledBrightnessPercent;
   o["buzzerEnabled"] = c.buzzerEnabled;
 }
@@ -126,6 +132,12 @@ const char* configFromJson(JsonObjectConst in, ag::Config& c, bool remote) {
   readNumber(in, "floatClearDelaySeconds", c.floatClearDelaySeconds, &err);
   readNumber(in, "maintenanceMinutes", c.maintenanceMinutes, &err);
   readNumber(in, "manualOpenMinutes", c.manualOpenMinutes, &err);
+  readBool(in, "scheduleEnabled", c.scheduleEnabled, &err);
+  readNumber(in, "weekdayStartMin", c.weekdayStartMin, &err);
+  readNumber(in, "weekdayEndMin", c.weekdayEndMin, &err);
+  readNumber(in, "weekendStartMin", c.weekendStartMin, &err);
+  readNumber(in, "weekendEndMin", c.weekendEndMin, &err);
+  readNumber(in, "utcOffsetMinutes", c.utcOffsetMinutes, &err);
   readNumber(in, "ledBrightnessPercent", c.ledBrightnessPercent, &err);
   readBool(in, "buzzerEnabled", c.buzzerEnabled, &err);
   if (err) return err;
@@ -194,6 +206,8 @@ void loadNet(NetSettings& n) {
   n.fbPassword = p.getString("fbpass", "");
   n.sleepEnabled = p.getBool("sleep", false);
   n.sleepMinutes = constrain(p.getUChar("sleepmin", 10), 1, 60);
+  n.settingsPin = p.getString("pin", "4211");
+  if (!ag::pinFormatValid(n.settingsPin.c_str())) n.settingsPin = "4211";
   if (n.apPassword.length() < 8) {
     n.apPassword = randomHex(5);  // 10 hex characters, unique per unit
     p.putString("appass", n.apPassword);
@@ -222,6 +236,7 @@ void saveNet(const NetSettings& n) {
   p.putString("fbpass", n.fbPassword);
   p.putBool("sleep", n.sleepEnabled);
   p.putUChar("sleepmin", n.sleepMinutes);
+  p.putString("pin", n.settingsPin);
   p.end();
 }
 

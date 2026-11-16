@@ -5,6 +5,86 @@ Each program has its own version number (see `versions.json`). Versions follow
 changes that break compatibility. The data schema number goes up whenever the
 shape of the data shared by the unit, Firebase and the app changes.
 
+## 2026-11-16 (unit list)
+
+### Phone app 0.6.0
+
+- Saved units: the app keeps a list of the units connected on this phone
+  (up to 12). Tapping the tank name in the header opens it: switch, add
+  another unit, or remove one (two taps). The About tab has the same list.
+- A phone updated from an earlier version keeps its unit.
+- The saved name follows the name the unit reports. Switching units forgets
+  the remembered settings PIN, since each unit has its own.
+- 3 new tests (24 in total). Checked in a browser: add, switch and remove,
+  with one real unit and one ID that has no unit behind it.
+
+### Project
+
+- Users and sharing guide updated for the unit list.
+
+## 2026-11-16 (filling times)
+
+### Firmware 0.5.0
+
+- Supply schedule (off by default): weekday and weekend filling windows in
+  local time. Automatic fills start only inside the window; a fill running
+  when it ends is stopped without a fault; manual open is unaffected; with
+  no clock time the schedule is not applied and a warning is shown.
+- Settings PIN (default 4211, 4 to 8 digits, changed on the local dashboard):
+  required for a settings change from the phone app. Five wrong PINs block
+  attempts for 5 minutes.
+- The clock is now set from NTP whenever Wi-Fi has internet, not only when
+  Firebase is enabled.
+- Status reports the schedule state and two new warnings.
+- 13 new logic tests (54 in total). Both builds compile; the bench-test
+  build was flashed to the bare board and reports as 0.5.0.
+
+### Phone app 0.5.0
+
+- Control tab: Filling times card with a day bar and time steppers for
+  weekdays and weekends.
+- Settings and filling times ask for the settings PIN before saving.
+- Tank tab: start and stop marks on the tank, status chips, filling-times
+  summary. Tab bar icons.
+- A refused request from an account without permission now says so.
+- 7 new tests (21 in total). Checked in demo mode in a browser.
+
+### Data schema 2
+
+- `config`: `scheduleEnabled`, `weekdayStartMin`, `weekdayEndMin`,
+  `weekendStartMin`, `weekendEndMin`, `utcOffsetMinutes`.
+- `status.schedule`: `{ clockKnown, open, waiting }`.
+- `setConfig` commands carry `pin`.
+
+### Project
+
+- Database rules: the command queue is readable by the unit only; any member
+  may request a settings change with a PIN; other commands stay owner-only.
+  Not yet published to the live project; the rules test is still not run.
+- `documents/AquaGuard_Components_and_Wiring.pdf`: two-page parts list and
+  wiring diagram.
+- Users and sharing guide updated for the viewer role and the PIN.
+
+## 2026-11-16
+
+### Project
+
+- `documents/AquaGuard_Users_and_Sharing_Guide.pdf`: how to add people and
+  more units, roles, removing access, limits, and what is not built yet.
+- USB setup (`provision`) was used on the bench board: it saved the settings,
+  and the board signed in to Firebase and reported online.
+
+## 2026-11-13 (USB setup)
+
+### Firmware 0.4.0
+
+- USB serial console: `status`, and `provision {json}` to save Wi-Fi,
+  dashboard password and Firebase settings and restart. Passwords are never
+  printed back. The bench-test build also has `bench-arm`.
+- Wi-Fi and Firebase link changes are logged over USB.
+- `scripts/provision.py` sends a git-ignored `firmware/provision.local.json`.
+- `status` was checked on a bare board.
+
 ## 2026-11-13 (bench test)
 
 ### Firmware 0.3.0

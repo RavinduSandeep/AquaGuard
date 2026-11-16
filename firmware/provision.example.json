@@ -1,0 +1,11 @@
+{
+  "wifiSsid": "your home Wi-Fi name (2.4 GHz)",
+  "wifiPass": "your home Wi-Fi password",
+  "adminPassword": "password for the unit's own dashboard, 8+ characters",
+  "fbDbUrl": "https://your-project-default-rtdb.asia-southeast1.firebasedatabase.app",
+  "fbApiKey": "Firebase web API key",
+  "fbEmail": "device account e-mail",
+  "fbPassword": "device account password",
+  "cloudEnabled": true,
+  "remoteControl": true
+}

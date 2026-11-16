@@ -209,7 +209,7 @@ const char* runCommand(JsonObjectConst cmd, uint32_t epoch) {
   else if (!strcmp(type, "setMode")) d = app::cmdMode(cmd["mode"] | "", src);
   else if (!strcmp(type, "setConfig")) {
     if (!cmd["config"].is<JsonObjectConst>()) return "BAD_REQUEST";
-    return app::cmdSetConfig(cmd["config"].as<JsonObjectConst>(), src);
+    return app::cmdSetConfig(cmd["config"].as<JsonObjectConst>(), src, cmd["pin"] | "");
   } else return "UNKNOWN_COMMAND";
   return d == ag::Deny::None ? nullptr : ag::denyName(d);
 }
@@ -256,7 +256,6 @@ void task(void*) {
   }
   base = n.fbDbUrl + "/devices/" + n.deviceId;
   dbClient.setCACert(kGoogleRootCas);
-  configTime(0, 0, "pool.ntp.org", "time.google.com");
 
   uint32_t lastStatus = 0, lastCommands = 0, lastHistoryEpoch = 0;
   uint32_t sentSeq = 0, sentConfigRevision = 0;
