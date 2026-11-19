@@ -163,6 +163,12 @@ Everything for one unit lives under `/devices/<deviceId>/`:
 `weekendStartMin`, `weekendEndMin` (minutes after midnight, local time; a
 start after the end runs past midnight) and `utcOffsetMinutes`; and
 `status.schedule = { clockKnown, open, waiting }` while the schedule is on.
+**Schema 3 (firmware 0.6.0, app 0.7.0)** replaced the weekday and weekend
+windows with one per day: `sunStartMin`, `sunEndMin` ... `satStartMin`,
+`satEndMin`, and `scheduleDays` (bit 0 = Sunday ... bit 6 = Saturday; a clear
+bit means no filling time that day). It added `config.lowLevelFillPercent`
+(0 = off) and `status.schedule.lowLevelFill`.
+
 A remote `setConfig` must carry the settings PIN. The PIN itself is stored
 only on the unit and is never written to Firebase by the unit.
 

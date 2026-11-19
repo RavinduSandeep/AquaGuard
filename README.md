@@ -12,9 +12,9 @@ from anywhere.
 
 | Program | Version | Where it lives | Status |
 |---|---|---|---|
-| Firmware (ESP32-S3) | **0.5.0** | [`firmware/`](firmware/) | Bench-test build runs on a bare ESP32-S3 N16R8 and reports to Firebase; 54 logic tests pass; not yet run with the sensor, valve or interlock wired |
-| Phone app (Android, iOS, web) | **0.6.0** | [`mobile/`](mobile/) | Type-checks; 24 tests pass; shows live data from the bench unit; filling times and PIN checked in demo mode only; unit list checked in a browser with one real unit |
-| Data schema (unit ↔ cloud ↔ app) | **2** | [`docs/firebase-setup.md`](docs/firebase-setup.md) | Adds the supply schedule |
+| Firmware (ESP32-S3) | **0.6.0** | [`firmware/`](firmware/) | Bench-test build runs on a bare ESP32-S3 N16R8 and reports to Firebase; 60 logic tests pass; not yet run with the sensor, valve or interlock wired |
+| Phone app (Android, iOS, web) | **0.7.0** | [`mobile/`](mobile/) | Type-checks; 26 tests pass; shows live data from the bench unit; filling times and PIN checked in demo mode only; unit list checked in a browser with one real unit |
+| Data schema (unit ↔ cloud ↔ app) | **3** | [`docs/firebase-setup.md`](docs/firebase-setup.md) | A filling time per day and the low-level fill |
 | Project guide | 13 Nov 2026 | [`documents/`](documents/) | Hardware design, 21 pages |
 | Components and wiring sheet | 16 Nov 2026 | [PDF](documents/AquaGuard_Components_and_Wiring.pdf) | Parts list and wiring diagram, 2 pages, taken from the project guide |
 | Users and sharing guide | 16 Nov 2026 | [PDF](documents/AquaGuard_Users_and_Sharing_Guide.pdf) | Adding people and more units, 4 pages; the cases in it are not yet tried |
@@ -107,19 +107,26 @@ Alternatives considered and the reasons are in
 - Hardware validation of the firmware (sensor frames, interlocks, valve timing).
 - The Firebase rules test (`firebase/rules.test.mjs`) has not been run; it
   needs Java for the local emulator.
-- A bare board on bench-test firmware 0.5.0 reports to the live Firebase
+- A bare board on bench-test firmware 0.6.0 reports to the live Firebase
   project and the app shows its live data. No multi-user case has been tried.
-- Filling times and the settings PIN are tested as logic (firmware and app
-  tests) and in the app's demo. Saving them from the app to a real unit has
-  not been confirmed, and the unit has not been watched through a real
-  window opening and closing.
-- The updated database rules in `firebase/database.rules.json` (needed for a
-  viewer to save with the PIN, and to hide the command queue from other
-  members) are not yet published to the live project.
+- Filling times (one per day), the low-level fill and the settings PIN are
+  tested as logic (firmware and app tests) and in the app's demo. Saving
+  them from the app to a real unit has not been confirmed, and the unit has
+  not been watched through a real window opening and closing or a real
+  low-level fill.
+- The database rules in `firebase/database.rules.json` were published to the
+  live project on 19 November 2026. The unit still reports and the app still
+  shows its data under them. A viewer saving with the PIN, and an owner
+  sending a request, have not been tried under the new rules.
+- A low-level fill opens the valve outside the filling times. If the supply
+  is off it gets no water: the valve stays open for `noProgressStopMinutes`
+  (20 by default), closes, and tries again after `retryMinutes` (30), for as
+  long as the tank stays that low.
 - The settings PIN is 4 digits by default and shared: it limits who can
   change settings among people who already have access, nothing more.
-- With the schedule on, a tank that runs low outside the filling time waits
-  for the next one; there is no automatic low-level override.
+- On 19 November 2026 the bench board came up with its saved settings
+  erased after a reflash; the cause was not found. They were restored over
+  USB and survived the next flash.
 - The app's list of units is kept on each phone, not in the account, so a
   new phone starts empty. Switching was checked in a browser between the
   bench unit and an ID with no unit behind it; a second real unit has not
@@ -127,7 +134,7 @@ Alternatives considered and the reasons are in
 - Power-saving sleep and firmware update over Wi-Fi have not been exercised
   on a board.
 - Water-board (NWSDB) outage notices are researched, not built. The schedule
-  has one window per day type; no per-date exceptions yet.
+  has one window per day of the week; no per-date exceptions yet.
 - Root certificates for Firebase are embedded in the firmware; the earliest
   expires in January 2028 and they will need refreshing in a firmware update
   before then.
@@ -157,8 +164,10 @@ view. Details and emulator options are in [`mobile/README.md`](mobile/README.md)
 
 ## Latest update
 
-**16 November 2026: saved units with a quick switch.** App 0.6.0 keeps a
-list of the units you have connected to on the phone. Tap the tank name at
-the top to switch tanks, add another unit or remove one; each unit keeps its
-own settings, filling times and PIN. The firmware is unchanged at 0.5.0.
-Details in [`CHANGELOG.md`](CHANGELOG.md).
+**19 November 2026: a filling time for each day, and a low-level fill.**
+Firmware 0.6.0 and app 0.7.0 give every day of the week its own filling time
+(or none), set from a week view on the app's Control tab. With the filling
+times on, a tank that drops to 15 % (adjustable) now fills straight away
+instead of waiting. Data schema is 3, and the updated database rules were
+published to the live Firebase project. Details in
+[`CHANGELOG.md`](CHANGELOG.md).

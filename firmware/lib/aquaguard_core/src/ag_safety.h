@@ -80,7 +80,8 @@ struct SafetyInputs {
   float levelPercent = 0.0f;   // only meaningful when levelValid
   bool sensorCritical = false; // invalid-opportunity count reached faultCount
   // True while the supply schedule forbids automatic filling. It never blocks
-  // a manual open and never raises a fault.
+  // a manual open and never raises a fault. A level at or below
+  // lowLevelFillPercent still fills (low-level fill).
   bool outsideSchedule = false;
 };
 
@@ -137,6 +138,8 @@ class SafetyManager {
   Deny openBlocker() const;
   // AUTO would start a fill now, but the supply schedule says wait.
   bool waitingForSchedule() const;
+  // A fill is running outside the filling time because the level was low.
+  bool lowLevelFillActive() const { return valveOpen_ && lowLevelFill_; }
 
   uint32_t fillRuntimeS(uint32_t nowMs) const;
   uint32_t manualRemainingS(uint32_t nowMs) const;
@@ -150,6 +153,7 @@ class SafetyManager {
   void raise(uint16_t bit);
   void startFill(uint32_t nowMs, bool manual);
   void endFill(uint32_t nowMs, Deny reason, bool completed);
+  bool levelIsLow() const;
   Deny deny(Deny d);
 
   Config cfg_;
@@ -168,6 +172,7 @@ class SafetyManager {
 
   bool valveOpen_ = false;
   bool manualFill_ = false;
+  bool lowLevelFill_ = false;  // this fill may run outside the filling time
   uint32_t fillStartMs_ = 0;
   uint32_t manualDeadlineMs_ = 0;
   uint32_t progressAtMs_ = 0;

@@ -686,24 +686,52 @@ static void test_schedule_same_day_window() {
   TEST_ASSERT_FALSE(scheduleAllows(c, 2, 13 * 60));
 }
 
-static void test_schedule_weekend_uses_its_own_window() {
+static void test_schedule_each_day_has_its_own_window() {
   Config c;
   c.scheduleEnabled = true;
-  c.weekendStartMin = 10 * 60;
-  c.weekendEndMin = 16 * 60;
-  TEST_ASSERT_TRUE(scheduleAllows(c, 6, 12 * 60));   // Saturday
-  TEST_ASSERT_TRUE(scheduleAllows(c, 0, 12 * 60));   // Sunday
-  TEST_ASSERT_FALSE(scheduleAllows(c, 1, 12 * 60));  // Monday
+  c.dayStartMin[6] = 10 * 60;  // Saturday 10 am to 4 pm
+  c.dayEndMin[6] = 16 * 60;
+  c.dayStartMin[3] = 18 * 60;  // Wednesday 6 pm to 9 pm
+  c.dayEndMin[3] = 21 * 60;
+  TEST_ASSERT_TRUE(scheduleAllows(c, 6, 12 * 60));
   TEST_ASSERT_FALSE(scheduleAllows(c, 6, 2 * 60));
+  TEST_ASSERT_TRUE(scheduleAllows(c, 3, 19 * 60));
+  TEST_ASSERT_FALSE(scheduleAllows(c, 3, 2 * 60));
+  TEST_ASSERT_FALSE(scheduleAllows(c, 0, 12 * 60));  // Sunday keeps 12 am to 8 am
+  TEST_ASSERT_TRUE(scheduleAllows(c, 0, 2 * 60));
+  TEST_ASSERT_FALSE(scheduleAllows(c, 4, 19 * 60));  // Thursday is not Wednesday
+}
+
+static void test_schedule_day_switched_off_has_no_window() {
+  Config c;
+  c.scheduleEnabled = true;
+  c.scheduleDays = 0x7F & ~(1u << 2);  // no filling on Tuesday
+  TEST_ASSERT_FALSE(scheduleAllows(c, 2, 2 * 60));
+  TEST_ASSERT_TRUE(scheduleAllows(c, 1, 2 * 60));
+  TEST_ASSERT_TRUE(scheduleAllows(c, 3, 2 * 60));
+  // Monday 10 pm to 5 am still runs into Tuesday morning.
+  c.dayStartMin[1] = 22 * 60;
+  c.dayEndMin[1] = 5 * 60;
+  TEST_ASSERT_TRUE(scheduleAllows(c, 2, 4 * 60));
+  TEST_ASSERT_FALSE(scheduleAllows(c, 2, 6 * 60));
+  // A wrapping window on a day that is off does not leak into the next day.
+  c.dayStartMin[2] = 22 * 60;
+  c.dayEndMin[2] = 5 * 60;
+  c.dayStartMin[3] = 10 * 60;  // Wednesday 10 am to 12 pm
+  c.dayEndMin[3] = 12 * 60;
+  TEST_ASSERT_FALSE(scheduleAllows(c, 2, 23 * 60));
+  TEST_ASSERT_FALSE(scheduleAllows(c, 3, 4 * 60));
 }
 
 static void test_schedule_window_past_midnight_belongs_to_its_start_day() {
   Config c;
   c.scheduleEnabled = true;
-  c.weekdayStartMin = 22 * 60;  // 10 pm to 5 am
-  c.weekdayEndMin = 5 * 60;
-  c.weekendStartMin = 9 * 60;   // 9 am to 11 am
-  c.weekendEndMin = 11 * 60;
+  for (int d = 1; d <= 5; d++) {  // Monday to Friday: 10 pm to 5 am
+    c.dayStartMin[d] = 22 * 60;
+    c.dayEndMin[d] = 5 * 60;
+  }
+  c.dayStartMin[0] = c.dayStartMin[6] = 9 * 60;  // weekend: 9 am to 11 am
+  c.dayEndMin[0] = c.dayEndMin[6] = 11 * 60;
   TEST_ASSERT_TRUE(scheduleAllows(c, 3, 23 * 60));
   TEST_ASSERT_TRUE(scheduleAllows(c, 4, 4 * 60));
   TEST_ASSERT_FALSE(scheduleAllows(c, 4, 6 * 60));
@@ -728,11 +756,27 @@ static void test_schedule_from_epoch_uses_the_utc_offset() {
 static void test_schedule_settings_are_validated() {
   Config c;
   TEST_ASSERT_NULL(validateConfig(c));
-  c.weekdayEndMin = 1440;
+  c.dayEndMin[2] = 1440;
   TEST_ASSERT_EQUAL_STRING("SCHEDULE_TIME_RANGE", validateConfig(c));
   c = Config();
-  c.weekendStartMin = c.weekendEndMin = 300;
+  c.dayStartMin[6] = c.dayEndMin[6] = 300;
   TEST_ASSERT_EQUAL_STRING("SCHEDULE_WINDOW_EMPTY", validateConfig(c));
+  c = Config();
+  c.scheduleDays = 0x80;
+  TEST_ASSERT_EQUAL_STRING("SCHEDULE_DAYS_RANGE", validateConfig(c));
+  c = Config();
+  c.scheduleDays = 0;
+  TEST_ASSERT_NULL(validateConfig(c));  // harmless while the schedule is off
+  c.scheduleEnabled = true;
+  TEST_ASSERT_EQUAL_STRING("SCHEDULE_NO_DAYS", validateConfig(c));
+  c = Config();
+  TEST_ASSERT_EQUAL_FLOAT(15.0f, c.lowLevelFillPercent);
+  c.lowLevelFillPercent = c.startFillPercent;
+  TEST_ASSERT_EQUAL_STRING("LOW_LEVEL_FILL_NOT_BELOW_START", validateConfig(c));
+  c.lowLevelFillPercent = -1.0f;
+  TEST_ASSERT_EQUAL_STRING("LOW_LEVEL_FILL_RANGE", validateConfig(c));
+  c.lowLevelFillPercent = 0.0f;  // off
+  TEST_ASSERT_NULL(validateConfig(c));
   c = Config();
   c.utcOffsetMinutes = 900;
   TEST_ASSERT_EQUAL_STRING("UTC_OFFSET_RANGE", validateConfig(c));
@@ -778,6 +822,85 @@ static void test_schedule_never_blocks_a_manual_open() {
   ASSERT_DENY(Deny::None, r.sm.requestOpen(r.now));
   r.run(200);
   TEST_ASSERT_TRUE(r.sm.valveRequest());
+}
+
+static void test_low_level_fills_outside_the_supply_window() {
+  Rig r;
+  r.arm();
+  r.in.outsideSchedule = true;
+  r.in.levelPercent = 20.0f;  // below start (35), above the low level (15)
+  r.run(200);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  TEST_ASSERT_TRUE(r.sm.waitingForSchedule());
+  r.in.levelPercent = 15.0f;
+  r.run(40);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+  TEST_ASSERT_TRUE(r.sm.lowLevelFillActive());
+  TEST_ASSERT_FALSE(r.sm.waitingForSchedule());
+  // It is a full fill: it does not stop as soon as the level is above 15 %.
+  r.in.levelPercent = 50.0f;
+  r.run(200);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+  r.in.levelPercent = 90.0f;
+  r.run(40);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  TEST_ASSERT_TRUE(r.saw(Event::FillComplete));
+  TEST_ASSERT_EQUAL(0, r.sm.faults());
+}
+
+static void test_low_level_fill_can_be_switched_off() {
+  Rig r;
+  r.cfg.lowLevelFillPercent = 0.0f;
+  r.sm.applyConfig(r.cfg, r.now);
+  r.arm();
+  r.in.outsideSchedule = true;
+  r.in.levelPercent = 0.0f;
+  r.run(200);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  TEST_ASSERT_TRUE(r.sm.waitingForSchedule());
+}
+
+static void test_fill_still_low_when_the_window_closes_carries_on() {
+  Rig r;
+  r.arm();
+  r.in.levelPercent = 10.0f;
+  r.run(40);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+  TEST_ASSERT_FALSE(r.sm.lowLevelFillActive());
+  r.in.outsideSchedule = true;
+  r.run(40);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+  TEST_ASSERT_TRUE(r.sm.lowLevelFillActive());
+  TEST_ASSERT_FALSE(r.saw(Event::FillStopped));
+  r.in.levelPercent = 40.0f;  // now above the low level: it still finishes
+  r.run(200);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+}
+
+static void test_low_level_fill_with_no_water_retries_without_a_fault() {
+  Rig r;  // autoRetry is off by default
+  r.arm();
+  r.in.outsideSchedule = true;
+  r.in.levelPercent = 12.0f;
+  r.run(40);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+  r.run(r.cfg.noProgressStopMinutes * 60000UL + 1000);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  TEST_ASSERT_EQUAL(0, r.sm.faults());
+  TEST_ASSERT_TRUE(r.sm.armed());
+  TEST_ASSERT_TRUE(r.saw(Event::RetryScheduled));
+  TEST_ASSERT_TRUE(r.sm.retryRemainingS(r.now) > 0);
+  r.run(r.cfg.retryMinutes * 60000UL + 1000);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());  // tries again
+}
+
+static void test_fill_inside_the_window_with_no_water_still_latches() {
+  Rig r;
+  r.arm();
+  r.in.levelPercent = 12.0f;  // low, but the filling time is open
+  r.run(r.cfg.noProgressStopMinutes * 60000UL + 1000);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  TEST_ASSERT_TRUE(r.sm.faults() & kFaultNoProgress);
 }
 
 static void test_pin_format() {
@@ -868,13 +991,19 @@ int main(int, char**) {
   RUN_TEST(test_resume_after_sleep_refuses_unhealthy_inputs);
   RUN_TEST(test_schedule_off_always_allows);
   RUN_TEST(test_schedule_same_day_window);
-  RUN_TEST(test_schedule_weekend_uses_its_own_window);
+  RUN_TEST(test_schedule_each_day_has_its_own_window);
+  RUN_TEST(test_schedule_day_switched_off_has_no_window);
   RUN_TEST(test_schedule_window_past_midnight_belongs_to_its_start_day);
   RUN_TEST(test_schedule_from_epoch_uses_the_utc_offset);
   RUN_TEST(test_schedule_settings_are_validated);
   RUN_TEST(test_auto_fill_waits_for_the_supply_window);
   RUN_TEST(test_supply_window_closing_ends_an_automatic_fill_without_a_fault);
   RUN_TEST(test_schedule_never_blocks_a_manual_open);
+  RUN_TEST(test_low_level_fills_outside_the_supply_window);
+  RUN_TEST(test_low_level_fill_can_be_switched_off);
+  RUN_TEST(test_fill_still_low_when_the_window_closes_carries_on);
+  RUN_TEST(test_low_level_fill_with_no_water_retries_without_a_fault);
+  RUN_TEST(test_fill_inside_the_window_with_no_water_still_latches);
   RUN_TEST(test_pin_format);
   RUN_TEST(test_pin_guard_accepts_only_the_right_pin);
   RUN_TEST(test_pin_guard_locks_after_five_wrong_tries);

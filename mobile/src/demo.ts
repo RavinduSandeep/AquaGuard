@@ -32,13 +32,15 @@ function addEvent(event: string, detail?: string) {
 function reset() {
   const now = Date.now();
   bootedAt = now - 3 * 86_400_000;
+  fillStartedAt = now; // the sample history may end part-way through a fill
   config = {
     revision: 1, valid: true, tankName: 'Roof tank (demo)', usableCapacityLitres: 1000,
     startFillPercent: 35, stopFillPercent: 90, highHighPercent: 95,
     maximumFillMinutes: 120, progressWindowMinutes: 10, minRisePercent: 1, noProgressStopMinutes: 20,
     autoRetry: false, retryMinutes: 30, manualOpenMinutes: 5, maintenanceMinutes: 10,
     ledBrightnessPercent: 20, buzzerEnabled: true,
-    scheduleEnabled: false, weekdayStartMin: 0, weekdayEndMin: 480, weekendStartMin: 0, weekendEndMin: 480, utcOffsetMinutes: -new Date().getTimezoneOffset(),
+    scheduleEnabled: false, scheduleDays: 127, lowLevelFillPercent: 15, utcOffsetMinutes: -new Date().getTimezoneOffset(),
+    ...Object.fromEntries(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].flatMap((d) => [[`${d}StartMin`, 0], [`${d}EndMin`, 480]])),
     fullDistanceCm: 35, emptyDistanceCm: 145, validDistanceMinCm: 30, validDistanceMaxCm: 600, commissioned: true,
   };
 
@@ -58,7 +60,7 @@ function reset() {
   const last = history[history.length - 1];
 
   status = {
-    schema: 2, fw: '0.5.0', deviceId: DEMO_DEVICE_ID, tankName: String(config.tankName),
+    schema: 3, fw: '0.6.0', deviceId: DEMO_DEVICE_ID, tankName: String(config.tankName),
     uptimeS: 3 * 86_400, ts: Math.floor(now / 1000), updatedAt: now,
     level: { valid: true, percent: last.p, litres: Math.round(last.p * 10), distanceCm: 145 - last.p * 1.1, ageMs: 200 },
     mode: 'AUTO', phase: last.v ? 'FILLING' : 'IDLE', armed: true, commissioned: true, remoteControl: true, muted: false,
@@ -103,6 +105,9 @@ function blocker(): string {
 
 export const DEMO_PIN = '4211';
 
+// True while a fill is running outside the filling times because the tank was very low.
+let lowFill = false;
+
 function windowOpen(now: number): boolean {
   const schedule = scheduleFromConfig(config);
   if (!schedule) return true;
@@ -114,7 +119,13 @@ function windowOpen(now: number): boolean {
 function tick() {
   const now = Date.now();
   const open = windowOpen(now);
-  if (status.valve.commanded && !manualUntil && !open) setValve(false);
+  const lowPoint = Number(config.lowLevelFillPercent ?? 0);
+  const veryLow = lowPoint > 0 && (status.level?.percent ?? 50) <= lowPoint;
+  if (!status.valve.commanded) lowFill = false;
+  if (status.valve.commanded && !manualUntil && !open) {
+    if (veryLow) lowFill = true;
+    if (!lowFill) setValve(false);
+  }
   let p = status.level?.percent ?? 50;
   p += status.valve.commanded ? 0.6 : -0.08;
   p = Math.max(0, Math.min(100, p));
@@ -127,16 +138,20 @@ function tick() {
   }
   status.level = { valid: true, percent: Math.round(p * 10) / 10, litres: Math.round((p / 100) * Number(config.usableCapacityLitres)), distanceCm: Math.round((145 - p * 1.1) * 10) / 10, ageMs: 200 };
   const wantsFill = !status.valve.commanded && status.mode === 'AUTO' && status.armed && p <= Number(config.startFillPercent);
-  if (wantsFill && open) setValve(true);
-  const waiting = wantsFill && !open;
+  if (wantsFill && (open || veryLow)) {
+    lowFill = !open;
+    setValve(true);
+  }
+  const waiting = wantsFill && !open && !veryLow;
+  const lowLevelFill = status.valve.commanded && lowFill;
   status = {
     ...status,
     tankName: String(config.tankName),
     updatedAt: now,
     uptimeS: Math.round((now - bootedAt) / 1000),
     phase: !status.armed ? 'DISARMED' : status.valve.commanded ? 'FILLING' : 'IDLE',
-    schedule: config.scheduleEnabled ? { clockKnown: true, open, waiting } : undefined,
-    warnings: waiting ? ['WAITING_FOR_SUPPLY_WINDOW'] : [],
+    schedule: config.scheduleEnabled ? { clockKnown: true, open, waiting, lowLevelFill } : undefined,
+    warnings: waiting ? ['WAITING_FOR_SUPPLY_WINDOW'] : lowLevelFill ? ['LOW_LEVEL_FILL'] : [],
     valve: {
       ...status.valve,
       fillRuntimeS: status.valve.commanded ? Math.round((now - fillStartedAt) / 1000) : 0,

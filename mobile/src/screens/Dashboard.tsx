@@ -1,23 +1,23 @@
 import { ScrollView, Text, View } from 'react-native';
 
 import { type Live } from '../data';
-import { describeWindow, formatDuration, headline, humanize, levelIsCurrent, scheduleFromConfig, unitClock } from '../logic';
+import { DAY_NAMES, describeWindow, formatDuration, groupDays, headline, humanize, levelIsCurrent, scheduleFromConfig, unitClock } from '../logic';
 import { Button, Card, Chip, Muted, Notice, Row, styles, useTheme } from '../ui';
 
 const TANK_HEIGHT = 176;
 
 /** The tank, with the start and stop levels marked on its side. */
-function Tank({ percent, current, start, stop }: { percent: number; current: boolean; start?: number; stop?: number }) {
+function Tank({ percent, current, start, stop, low }: { percent: number; current: boolean; start?: number; stop?: number; low?: number }) {
   const t = useTheme();
   const mark = (value: number | undefined, label: string) =>
     value === undefined ? null : (
       <View style={{ position: 'absolute', left: 0, right: 0, bottom: (value / 100) * TANK_HEIGHT - 8, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
         <View style={{ width: 104, height: 2, backgroundColor: t.ink2, opacity: 0.55 }} />
-        <Text style={{ color: t.ink2, fontSize: 11 }}>{label}</Text>
+        <Text numberOfLines={1} style={{ color: t.ink2, fontSize: 11, flex: 1 }}>{label}</Text>
       </View>
     );
   return (
-    <View style={{ width: 150, height: TANK_HEIGHT }}>
+    <View style={{ width: 172, height: TANK_HEIGHT }}>
       <View
         style={{ width: 104, height: TANK_HEIGHT, borderWidth: 3, borderColor: t.ink, borderRadius: 14, overflow: 'hidden', justifyContent: 'flex-end', backgroundColor: t.bg }}
         accessibilityLabel={current ? `Tank ${Math.round(percent)} percent full` : 'Tank level unknown'}
@@ -26,6 +26,7 @@ function Tank({ percent, current, start, stop }: { percent: number; current: boo
       </View>
       {mark(stop, `stop ${stop}%`)}
       {mark(start, `start ${start}%`)}
+      {mark(low, `low ${low}%`)}
     </View>
   );
 }
@@ -42,18 +43,16 @@ export function Dashboard({ live, onOpenControl }: { live: Live; onOpenControl?:
 
   const schedule = scheduleFromConfig(config);
   const clock = unitClock(serverNow, Number(config?.utcOffsetMinutes ?? 330));
-  const weekend = clock.dayOfWeek === 0 || clock.dayOfWeek === 6;
-  const todayWindow = schedule
-    ? weekend
-      ? describeWindow(schedule.weekendStart, schedule.weekendEnd)
-      : describeWindow(schedule.weekdayStart, schedule.weekdayEnd)
-    : null;
+  const today = schedule?.days[clock.dayOfWeek];
+  const todayWindow = today ? (today.on ? describeWindow(today.start, today.end) : 'No filling today') : null;
+  // The low mark only means something while the filling times are on.
+  const low = schedule?.enabled && schedule.lowLevel > 0 ? schedule.lowLevel : undefined;
 
   return (
     <ScrollView contentContainerStyle={styles.screen}>
       <Card>
         <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-          <Tank percent={level?.percent ?? 0} current={current} start={start} stop={stop} />
+          <Tank percent={level?.percent ?? 0} current={current} start={start} stop={stop} low={low} />
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={{ color: t.ink, fontSize: 60, fontWeight: '800', fontVariant: ['tabular-nums'], lineHeight: 66 }}>
               {current ? `${Math.round(level!.percent!)}%` : '--%'}
@@ -96,14 +95,20 @@ export function Dashboard({ live, onOpenControl }: { live: Live; onOpenControl?:
             <Card title="Filling times">
               {schedule.enabled ? (
                 <>
-                  <Row label={weekend ? 'Today (weekend)' : 'Today (weekday)'} value={todayWindow ?? ''} />
+                  <Row label={`Today (${DAY_NAMES[clock.dayOfWeek]})`} value={todayWindow ?? ''} />
                   {status.schedule && online ? (
                     <Row
                       label="Right now"
-                      value={!status.schedule.clockKnown ? 'No clock time: not applied' : status.schedule.waiting ? 'Low: waiting for the next time' : status.schedule.open ? 'Inside a filling time' : 'Outside the filling times'}
-                      tone={!status.schedule.clockKnown ? 'warn' : status.schedule.waiting ? 'info' : status.schedule.open ? 'ok' : undefined}
+                      value={!status.schedule.clockKnown ? 'No clock time: not applied' : status.schedule.lowLevelFill ? 'Very low: filling now' : status.schedule.waiting ? 'Low: waiting for the next time' : status.schedule.open ? 'Inside a filling time' : 'Outside the filling times'}
+                      tone={!status.schedule.clockKnown ? 'warn' : status.schedule.lowLevelFill || status.schedule.waiting ? 'info' : status.schedule.open ? 'ok' : undefined}
                     />
                   ) : null}
+                  {groupDays(schedule).length > 1
+                    ? groupDays(schedule).map((g) => (
+                        <Row key={g.label} label={g.label} value={g.window.on ? describeWindow(g.window.start, g.window.end) : 'No filling'} />
+                      ))
+                    : null}
+                  <Row label="Very low tank" value={low ? `Fills at any time at ${low}%` : 'Waits for the filling time'} />
                 </>
               ) : (
                 <Muted>Off: the unit fills at any time the level drops to the start point.</Muted>

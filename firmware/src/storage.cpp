@@ -52,6 +52,9 @@ void readBool(JsonObjectConst in, const char* key, bool& out, const char** err) 
 }
 }  // namespace
 
+// Setting names for the seven filling times: sunStartMin, sunEndMin, ...
+const char* const kDayNames[7] = {"sun", "mon", "tue", "wed", "thu", "fri", "sat"};
+
 void configToJson(const ag::Config& c, JsonObject o) {
   o["schema"] = ag::kConfigSchema;
   o["tankName"] = c.tankName;
@@ -80,11 +83,13 @@ void configToJson(const ag::Config& c, JsonObject o) {
   o["maintenanceMinutes"] = c.maintenanceMinutes;
   o["manualOpenMinutes"] = c.manualOpenMinutes;
   o["scheduleEnabled"] = c.scheduleEnabled;
-  o["weekdayStartMin"] = c.weekdayStartMin;
-  o["weekdayEndMin"] = c.weekdayEndMin;
-  o["weekendStartMin"] = c.weekendStartMin;
-  o["weekendEndMin"] = c.weekendEndMin;
+  o["scheduleDays"] = c.scheduleDays;
+  for (int d = 0; d < 7; d++) {
+    o[String(kDayNames[d]) + "StartMin"] = c.dayStartMin[d];
+    o[String(kDayNames[d]) + "EndMin"] = c.dayEndMin[d];
+  }
   o["utcOffsetMinutes"] = c.utcOffsetMinutes;
+  o["lowLevelFillPercent"] = c.lowLevelFillPercent;
   o["ledBrightnessPercent"] = c.ledBrightnessPercent;
   o["buzzerEnabled"] = c.buzzerEnabled;
 }
@@ -133,11 +138,20 @@ const char* configFromJson(JsonObjectConst in, ag::Config& c, bool remote) {
   readNumber(in, "maintenanceMinutes", c.maintenanceMinutes, &err);
   readNumber(in, "manualOpenMinutes", c.manualOpenMinutes, &err);
   readBool(in, "scheduleEnabled", c.scheduleEnabled, &err);
-  readNumber(in, "weekdayStartMin", c.weekdayStartMin, &err);
-  readNumber(in, "weekdayEndMin", c.weekdayEndMin, &err);
-  readNumber(in, "weekendStartMin", c.weekendStartMin, &err);
-  readNumber(in, "weekendEndMin", c.weekendEndMin, &err);
+  // Settings saved by firmware 0.5 had one window for weekdays and one for
+  // weekends. They are still accepted and spread over the days they covered.
+  for (int d = 0; d < 7; d++) {
+    const bool weekend = d == 0 || d == 6;
+    readNumber(in, weekend ? "weekendStartMin" : "weekdayStartMin", c.dayStartMin[d], &err);
+    readNumber(in, weekend ? "weekendEndMin" : "weekdayEndMin", c.dayEndMin[d], &err);
+  }
+  for (int d = 0; d < 7; d++) {
+    readNumber(in, (String(kDayNames[d]) + "StartMin").c_str(), c.dayStartMin[d], &err);
+    readNumber(in, (String(kDayNames[d]) + "EndMin").c_str(), c.dayEndMin[d], &err);
+  }
+  readNumber(in, "scheduleDays", c.scheduleDays, &err);
   readNumber(in, "utcOffsetMinutes", c.utcOffsetMinutes, &err);
+  readNumber(in, "lowLevelFillPercent", c.lowLevelFillPercent, &err);
   readNumber(in, "ledBrightnessPercent", c.ledBrightnessPercent, &err);
   readBool(in, "buzzerEnabled", c.buzzerEnabled, &err);
   if (err) return err;

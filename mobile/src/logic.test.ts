@@ -23,6 +23,8 @@ import {
   humanize,
   isOnline,
   levelIsCurrent,
+  copyDay,
+  groupDays,
   MAX_SAVED_UNITS,
   normalizeDeviceId,
   parseSavedUnits,
@@ -214,7 +216,12 @@ test('normalizeDeviceId', () => {
   assert.equal(normalizeDeviceId('../users'), null);
 });
 
-const nights: Schedule = { enabled: true, weekdayStart: 0, weekdayEnd: 480, weekendStart: 0, weekendEnd: 480 };
+const week = (start: number, end: number): Schedule => ({
+  enabled: true,
+  days: Array.from({ length: 7 }, () => ({ on: true, start, end })),
+  lowLevel: 15,
+});
+const nights = week(0, 480);
 
 test('clock times are shown in 12-hour form', () => {
   assert.equal(formatClock(0), '12:00 am');
@@ -238,11 +245,37 @@ test('the schedule rule matches the unit', () => {
   assert.equal(scheduleAllows({ ...nights, enabled: false }, 3, 800), true);
   assert.equal(scheduleAllows(nights, 3, 479), true);
   assert.equal(scheduleAllows(nights, 3, 480), false);
-  const late: Schedule = { enabled: true, weekdayStart: 1320, weekdayEnd: 300, weekendStart: 540, weekendEnd: 660 };
+  // Monday to Friday 10 pm to 5 am, weekend 9 am to 11 am.
+  const late = week(1320, 300);
+  late.days[0] = { on: true, start: 540, end: 660 };
+  late.days[6] = { on: true, start: 540, end: 660 };
   assert.equal(scheduleAllows(late, 4, 1380), true);
   assert.equal(scheduleAllows(late, 6, 240), true); // Saturday early: Friday's window
   assert.equal(scheduleAllows(late, 0, 240), false); // Sunday early: Saturday's did not wrap
   assert.equal(scheduleAllows(late, 6, 600), true);
+});
+
+test('each day has its own filling time and can be switched off', () => {
+  const s = week(0, 480);
+  s.days[3] = { on: true, start: 1080, end: 1260 }; // Wednesday evening
+  s.days[2] = { on: false, start: 1320, end: 300 }; // Tuesday off
+  assert.equal(scheduleAllows(s, 3, 1100), true);
+  assert.equal(scheduleAllows(s, 3, 100), false);
+  assert.equal(scheduleAllows(s, 4, 1100), false);
+  assert.equal(scheduleAllows(s, 2, 100), false);
+  assert.equal(scheduleAllows(s, 2, 1380), false);
+  assert.equal(scheduleAllows(s, 3, 240), false); // an off day's window does not run into the next day
+});
+
+test('days that share a filling time are grouped for the summary', () => {
+  assert.deepEqual(groupDays(week(0, 480)).map((g) => g.label), ['Every day']);
+  const s = week(0, 480);
+  s.days[6] = { on: true, start: 600, end: 900 };
+  s.days[0] = { on: true, start: 600, end: 900 };
+  assert.deepEqual(groupDays(s).map((g) => g.label), ['Mon to Fri', 'Sat, Sun']);
+  s.days[3] = { on: false, start: 0, end: 480 };
+  assert.deepEqual(groupDays(s).map((g) => g.label), ['Mon, Tue, Thu, Fri', 'Wed', 'Sat, Sun']);
+  assert.deepEqual(copyDay(s, 6, [1, 2]).days[2], { on: true, start: 600, end: 900 });
 });
 
 test('the unit clock follows its UTC offset', () => {
@@ -255,12 +288,29 @@ test('the unit clock follows its UTC offset', () => {
 });
 
 test('schedule changes become a patch of only what changed', () => {
-  const config: DeviceConfig = { scheduleEnabled: false, weekdayStartMin: 0, weekdayEndMin: 480, weekendStartMin: 0, weekendEndMin: 480 };
+  const config: DeviceConfig = { scheduleEnabled: false, scheduleDays: 127, startFillPercent: 35, lowLevelFillPercent: 15 };
+  for (const key of ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']) {
+    config[`${key}StartMin`] = 0;
+    config[`${key}EndMin`] = 480;
+  }
   assert.equal(scheduleFromConfig({ tankName: 'old firmware' }), null);
+  assert.equal(scheduleFromConfig({ scheduleEnabled: true, weekdayStartMin: 0 }), null); // firmware 0.5: no per-day times
   const current = scheduleFromConfig(config)!;
+  assert.equal(current.lowLevel, 15);
   assert.deepEqual(schedulePatch(config, current).patch, {});
-  assert.deepEqual(schedulePatch(config, { ...current, enabled: true, weekendEnd: 600 }).patch, { scheduleEnabled: true, weekendEndMin: 600 });
-  assert.match(schedulePatch(config, { ...current, weekdayEnd: 0 }).error!, /Weekdays/);
+
+  const draft: Schedule = { ...current, enabled: true, days: current.days.map((d) => ({ ...d })), lowLevel: 20 };
+  draft.days[6].end = 600;
+  draft.days[2].on = false;
+  assert.deepEqual(schedulePatch(config, draft).patch, { scheduleEnabled: true, scheduleDays: 127 - 4, satEndMin: 600, lowLevelFillPercent: 20 });
+
+  draft.days[1].end = 0;
+  assert.match(schedulePatch(config, draft).error!, /Monday/);
+  draft.days[1].end = 480;
+  assert.match(schedulePatch(config, { ...draft, lowLevel: 35 }).error!, /below the start point/);
+  assert.deepEqual(schedulePatch(config, { ...current, lowLevel: 0 }).patch, { lowLevelFillPercent: 0 });
+  const none: Schedule = { ...current, enabled: true, days: current.days.map((d) => ({ ...d, on: false })) };
+  assert.match(schedulePatch(config, none).error!, /at least one day/);
 });
 
 test('the PIN must be 4 to 8 digits', () => {

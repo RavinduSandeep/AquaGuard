@@ -24,11 +24,16 @@ tab shows the app version, the unit's firmware version and the data schema of bo
 
 ### Filling times and the settings PIN
 
-On the Control tab, switch on **Fill only when the supply is on** and set
-when the water comes on and goes off, separately for weekdays and weekends
-(15-minute or 1-hour steps; a time that runs past midnight is fine). The bar
-shows the day from midnight to midnight with the filling time shaded and a
-mark at the time now.
+On the Control tab, switch on **Fill only when the supply is on**. The week
+is listed Monday to Sunday with a bar for each day; tap a day to set when the
+water comes on and goes off (15-minute or 1-hour steps; a time that runs past
+midnight is fine), or switch that day off. **Every day**, **Mon to Fri** and
+**Sat and Sun** copy the selected day's setting to other days.
+
+**Fill at any time when the tank is very low** (15 % by default, in steps of
+5 %) lets the unit fill outside the filling times when the level drops that
+far. The Tank tab shows the low level as a third mark on the tank. This needs
+firmware 0.6.0 or later.
 
 Saving filling times or settings asks for the unit's **settings PIN**
 (default 4211; the owner changes it on the unit's own page). Once the unit

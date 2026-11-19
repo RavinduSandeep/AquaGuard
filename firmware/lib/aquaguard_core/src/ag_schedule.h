@@ -8,9 +8,10 @@
 namespace ag {
 
 // True when automatic filling is allowed at this local time.
-// dayOfWeek: 0 = Sunday .. 6 = Saturday. Saturday and Sunday use the weekend
-// window. A window whose start is after its end runs past midnight and
-// belongs to the day it started on. Always true when the schedule is off.
+// dayOfWeek: 0 = Sunday .. 6 = Saturday; each day has its own window, and a
+// day switched off in scheduleDays has none. A window whose start is after
+// its end runs past midnight and belongs to the day it started on. Always
+// true when the schedule is off.
 bool scheduleAllows(const Config& c, uint8_t dayOfWeek, uint16_t minuteOfDay);
 
 // Same, from UTC epoch seconds and the configured UTC offset. With an unknown

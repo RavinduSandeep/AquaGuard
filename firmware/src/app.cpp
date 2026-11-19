@@ -204,6 +204,7 @@ void fillStatus(JsonObject o) {
     sch["clockKnown"] = epoch != 0;
     sch["open"] = ag::scheduleAllowsAt(cfg, epoch);
     sch["waiting"] = safety.waitingForSchedule();
+    sch["lowLevelFill"] = safety.lowLevelFillActive();
   }
 
   JsonObject valve = o["valve"].to<JsonObject>();
@@ -230,6 +231,7 @@ void fillStatus(JsonObject o) {
   if (safety.noProgressWarning()) warnings.add("NO_PROGRESS_WARNING");
   if (safety.retryRemainingS(now)) warnings.add("RETRY_WAIT");
   if (safety.waitingForSchedule()) warnings.add("WAITING_FOR_SUPPLY_WINDOW");
+  if (safety.lowLevelFillActive()) warnings.add("LOW_LEVEL_FILL");
   if (cfg.scheduleEnabled && !epochNow()) warnings.add("SCHEDULE_CLOCK_UNKNOWN");
   if (!cfg.commissioned) warnings.add("NOT_COMMISSIONED");
   if (safety.lockout()) warnings.add("LOCKOUT");

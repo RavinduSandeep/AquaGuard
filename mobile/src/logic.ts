@@ -41,7 +41,7 @@ export type DeviceStatus = {
   // (epoch seconds) is set in the last report before a sleep.
   power?: { sleepMinutes: number; sleepUntil?: number };
   // Present only when the supply schedule is switched on.
-  schedule?: { clockKnown: boolean; open: boolean; waiting: boolean };
+  schedule?: { clockKnown: boolean; open: boolean; waiting: boolean; lowLevelFill?: boolean };
   // True only for the firmware's bench-test build (pretend sensor and inputs).
   simulated?: boolean;
 };
@@ -102,6 +102,7 @@ export function headline(
   if (!status.commissioned) return { tone: 'warn', text: 'Not commissioned' };
   if (!status.armed) return { tone: 'warn', text: 'Disarmed: acknowledge to arm' };
   if (!status.level?.valid) return { tone: 'warn', text: 'Sensor reading stale' };
+  if (status.valve.commanded && status.schedule?.lowLevelFill) return { tone: 'info', text: 'Tank was very low: filling now (commanded)' };
   if (status.valve.commanded) return { tone: 'info', text: 'Filling (commanded)' };
   if (status.schedule?.waiting) return { tone: 'info', text: 'Level is low: waiting for the next filling time' };
   if ((status.warnings ?? []).length) return { tone: 'warn', text: (status.warnings ?? []).map(humanize).join(' · ') };
@@ -138,6 +139,10 @@ const LABELS: Record<string, string> = {
   PIN_LOCKED: 'Too many wrong PINs. Try again in 5 minutes',
   PERMISSION_DENIED: 'This account is not allowed to change this unit',
   SCHEDULE_WINDOW_EMPTY: 'A filling time must start and end at different times',
+  SCHEDULE_NO_DAYS: 'Switch on at least one day',
+  LOW_LEVEL_FILL: 'Tank was very low: filling outside the filling times',
+  LOW_LEVEL_FILL_NOT_BELOW_START: 'The low level must be below the start point',
+  LOW_LEVEL_FILL_RANGE: 'The low level is out of range',
   NONE: 'Nothing',
 };
 
@@ -407,31 +412,35 @@ export function unitLabel(unit: SavedUnit): string {
 
 export const MINUTES_PER_DAY = 1440;
 
+/** One day's filling time. Minutes after midnight, at the unit's local time. */
+export type DayWindow = { on: boolean; start: number; end: number };
+
 export type Schedule = {
   enabled: boolean;
-  weekdayStart: number; // minutes after midnight, Monday to Friday
-  weekdayEnd: number;
-  weekendStart: number; // Saturday and Sunday
-  weekendEnd: number;
+  /** Index 0 = Sunday .. 6 = Saturday, as the unit counts them. */
+  days: DayWindow[];
+  /** Fill at any time when the level is at or below this. 0 = switched off. */
+  lowLevel: number;
 };
 
-const SCHEDULE_FIELDS: [keyof Schedule, string][] = [
-  ['enabled', 'scheduleEnabled'],
-  ['weekdayStart', 'weekdayStartMin'],
-  ['weekdayEnd', 'weekdayEndMin'],
-  ['weekendStart', 'weekendStartMin'],
-  ['weekendEnd', 'weekendEndMin'],
-];
+export const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+/** Monday first, the order the week is shown in. */
+export const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
+const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+export const DEFAULT_LOW_LEVEL = 15;
 
-/** null when the unit's firmware is too old to have filling times. */
+/** null when the unit's firmware is too old to have a filling time per day. */
 export function scheduleFromConfig(config: DeviceConfig | null): Schedule | null {
-  if (!config || config.scheduleEnabled === undefined) return null;
+  if (!config || config.scheduleEnabled === undefined || config.scheduleDays === undefined) return null;
+  const mask = Number(config.scheduleDays);
   return {
     enabled: Boolean(config.scheduleEnabled),
-    weekdayStart: Number(config.weekdayStartMin ?? 0),
-    weekdayEnd: Number(config.weekdayEndMin ?? 480),
-    weekendStart: Number(config.weekendStartMin ?? 0),
-    weekendEnd: Number(config.weekendEndMin ?? 480),
+    days: DAY_KEYS.map((key, d) => ({
+      on: ((mask >> d) & 1) === 1,
+      start: Number(config[`${key}StartMin`] ?? 0),
+      end: Number(config[`${key}EndMin`] ?? 480),
+    })),
+    lowLevel: Number(config.lowLevelFillPercent ?? DEFAULT_LOW_LEVEL),
   };
 }
 
@@ -440,13 +449,53 @@ export function schedulePatch(
   config: DeviceConfig,
   draft: Schedule,
 ): { patch: DeviceConfig; error?: undefined } | { error: string; patch?: undefined } {
-  if (draft.weekdayStart === draft.weekdayEnd) return { error: 'Weekdays: the start and end times are the same' };
-  if (draft.weekendStart === draft.weekendEnd) return { error: 'Weekends: the start and end times are the same' };
-  const patch: DeviceConfig = {};
-  for (const [field, key] of SCHEDULE_FIELDS) {
-    if (draft[field] !== config[key]) patch[key] = draft[field];
+  for (const d of WEEK_ORDER) {
+    if (draft.days[d].start === draft.days[d].end) return { error: `${DAY_NAMES[d]}: the start and end times are the same` };
   }
+  if (draft.enabled && !draft.days.some((day) => day.on)) return { error: 'Switch on at least one day, or switch the filling times off' };
+  const startPoint = Number(config.startFillPercent);
+  if (draft.lowLevel < 0 || (draft.lowLevel > 0 && Number.isFinite(startPoint) && draft.lowLevel >= startPoint)) {
+    return { error: `The low level must be below the start point (${startPoint}%)` };
+  }
+  const patch: DeviceConfig = {};
+  const put = (key: string, value: number | boolean) => {
+    if (config[key] !== value) patch[key] = value;
+  };
+  put('scheduleEnabled', draft.enabled);
+  put('scheduleDays', draft.days.reduce((mask, day, d) => (day.on ? mask | (1 << d) : mask), 0));
+  DAY_KEYS.forEach((key, d) => {
+    put(`${key}StartMin`, draft.days[d].start);
+    put(`${key}EndMin`, draft.days[d].end);
+  });
+  put('lowLevelFillPercent', draft.lowLevel);
   return { patch };
+}
+
+/** Copies one day's filling time onto other days. */
+export function copyDay(s: Schedule, from: number, to: readonly number[]): Schedule {
+  return { ...s, days: s.days.map((day, d) => (to.includes(d) ? { ...s.days[from] } : day)) };
+}
+
+/**
+ * Groups days that share a filling time, for a short summary:
+ * "Mon to Fri" / "Sat, Sun". Monday first.
+ */
+export function groupDays(s: Schedule): { label: string; days: number[]; window: DayWindow }[] {
+  const groups: { days: number[]; window: DayWindow }[] = [];
+  for (const d of WEEK_ORDER) {
+    const w = s.days[d];
+    const match = groups.find((g) => g.window.on === w.on && (!w.on || (g.window.start === w.start && g.window.end === w.end)));
+    if (match) match.days.push(d);
+    else groups.push({ days: [d], window: w });
+  }
+  const short = (d: number) => DAY_NAMES[d].slice(0, 3);
+  return groups.map((g) => {
+    const at = g.days.map((d) => WEEK_ORDER.indexOf(d as (typeof WEEK_ORDER)[number]));
+    const run = at.every((v, i) => i === 0 || v === at[i - 1] + 1);
+    const label =
+      g.days.length === 7 ? 'Every day' : run && g.days.length > 2 ? `${short(g.days[0])} to ${short(g.days[g.days.length - 1])}` : g.days.map(short).join(', ');
+    return { label, ...g };
+  });
 }
 
 /** 0 -> "12:00 am", 810 -> "1:30 pm". */
@@ -487,16 +536,14 @@ export function windowSegments(start: number, end: number): { from: number; to: 
 /**
  * The unit's own rule, mirrored for the demo and for previews. dayOfWeek:
  * 0 = Sunday .. 6 = Saturday. A window that runs past midnight belongs to the
- * day it started on.
+ * day it started on; a day that is switched off has no window.
  */
 export function scheduleAllows(s: Schedule, dayOfWeek: number, minuteOfDay: number): boolean {
   if (!s.enabled) return true;
-  const windowFor = (dow: number) =>
-    dow === 0 || dow === 6 ? [s.weekendStart, s.weekendEnd] : [s.weekdayStart, s.weekdayEnd];
-  const [start, end] = windowFor(dayOfWeek);
-  if (start < end ? minuteOfDay >= start && minuteOfDay < end : minuteOfDay >= start) return true;
-  const [yStart, yEnd] = windowFor((dayOfWeek + 6) % 7);
-  return yStart > yEnd && minuteOfDay < yEnd;
+  const today = s.days[dayOfWeek];
+  if (today.on && (today.start < today.end ? minuteOfDay >= today.start && minuteOfDay < today.end : minuteOfDay >= today.start)) return true;
+  const yesterday = s.days[(dayOfWeek + 6) % 7];
+  return yesterday.on && yesterday.start > yesterday.end && minuteOfDay < yesterday.end;
 }
 
 /** Day of week and minute of day at the unit, from its UTC offset. */

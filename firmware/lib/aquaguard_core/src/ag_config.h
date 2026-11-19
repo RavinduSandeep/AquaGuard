@@ -46,14 +46,19 @@ struct Config {
   uint16_t manualOpenMinutes = 5;
 
   // Supply schedule: when on, automatic filling starts only inside the
-  // window for the day, in local time. Minutes after midnight; a start after
-  // the end means the window runs past midnight.
+  // window for the day, in local time. Every day of the week has its own
+  // window (index 0 = Sunday .. 6 = Saturday), in minutes after midnight; a
+  // start after the end means the window runs past midnight. A day whose bit
+  // is clear in scheduleDays has no filling time at all.
   bool scheduleEnabled = false;
-  uint16_t weekdayStartMin = 0;     // Monday to Friday, default 12:00 am
-  uint16_t weekdayEndMin = 480;     // 8:00 am
-  uint16_t weekendStartMin = 0;     // Saturday and Sunday
-  uint16_t weekendEndMin = 480;
+  uint16_t dayStartMin[7] = {0, 0, 0, 0, 0, 0, 0};                // 12:00 am
+  uint16_t dayEndMin[7] = {480, 480, 480, 480, 480, 480, 480};    // 8:00 am
+  uint8_t scheduleDays = 0x7F;      // bit n set = day n has a filling time
   int16_t utcOffsetMinutes = 330;   // local time = UTC + this (Sri Lanka: +5:30)
+  // Low-level fill: with the schedule on, a level at or below this starts a
+  // fill at any time, so the tank is not left empty until the next filling
+  // time. 0 switches it off. Must stay below startFillPercent.
+  float lowLevelFillPercent = 15.0f;
 
   // Indication
   uint8_t ledBrightnessPercent = 20;

@@ -5,6 +5,46 @@ Each program has its own version number (see `versions.json`). Versions follow
 changes that break compatibility. The data schema number goes up whenever the
 shape of the data shared by the unit, Firebase and the app changes.
 
+## 2026-11-19
+
+### Firmware 0.6.0
+
+- A filling time for each day of the week (`sunStartMin` ... `satEndMin`),
+  and `scheduleDays` to switch a day off. Replaces the weekday and weekend
+  windows; settings saved by 0.5 are converted when read.
+- Low-level fill (`lowLevelFillPercent`, default 15, 0 = off): with the
+  schedule on, a level at or below it starts a fill at any time and runs it
+  to the stop threshold. If no water comes, the valve closes without a
+  fault and the unit tries again after `retryMinutes`. A fill inside a
+  filling time keeps the normal no-progress fault.
+- Status reports `schedule.lowLevelFill` and the warning `LOW_LEVEL_FILL`.
+- 6 new logic tests (60 in total). Both builds compile; the bench-test
+  build was flashed to the bare board and reports as 0.6.0.
+
+### Phone app 0.7.0
+
+- Filling times: a week view, one row and bar per day; tap a day to set its
+  times or switch it off; copy a day to every day, Monday to Friday, or the
+  weekend.
+- Low-level fill switch and level (steps of 5 %).
+- Tank tab: a third mark on the tank for the low level, today's filling
+  time by day name, a summary of days that share a time.
+- Demo: fixed a wrong "Last fill took" value.
+- 2 new tests (26 in total). Checked in demo mode in a browser, and against
+  the bench unit for viewing.
+
+### Data schema 3
+
+- `config`: per-day `…StartMin` / `…EndMin`, `scheduleDays`,
+  `lowLevelFillPercent`. The four weekday and weekend keys are gone.
+- `status.schedule.lowLevelFill`.
+
+### Project
+
+- Database rules published to the live Firebase project.
+- USB setup was used again on the bench board after it lost its saved
+  settings on a reflash (cause not found).
+
 ## 2026-11-16 (unit list)
 
 ### Phone app 0.6.0

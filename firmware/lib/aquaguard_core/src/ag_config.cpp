@@ -54,11 +54,14 @@ const char* validateConfig(const Config& c) {
   if (c.manualOpenMinutes < 1 || c.manualOpenMinutes > 15) return "MANUAL_OPEN_MINUTES";
   if (c.manualOpenMinutes > c.maximumFillMinutes) return "MANUAL_OPEN_ABOVE_MAX_FILL";
 
-  if (c.weekdayStartMin > 1439 || c.weekdayEndMin > 1439 || c.weekendStartMin > 1439 ||
-      c.weekendEndMin > 1439) {
-    return "SCHEDULE_TIME_RANGE";
+  for (int d = 0; d < 7; d++) {
+    if (c.dayStartMin[d] > 1439 || c.dayEndMin[d] > 1439) return "SCHEDULE_TIME_RANGE";
+    if (c.dayStartMin[d] == c.dayEndMin[d]) return "SCHEDULE_WINDOW_EMPTY";
   }
-  if (c.weekdayStartMin == c.weekdayEndMin || c.weekendStartMin == c.weekendEndMin) return "SCHEDULE_WINDOW_EMPTY";
+  if (c.scheduleDays > 0x7F) return "SCHEDULE_DAYS_RANGE";
+  if (c.scheduleEnabled && c.scheduleDays == 0) return "SCHEDULE_NO_DAYS";
+  if (!finite(c.lowLevelFillPercent) || c.lowLevelFillPercent < 0.0f) return "LOW_LEVEL_FILL_RANGE";
+  if (c.lowLevelFillPercent >= c.startFillPercent && c.lowLevelFillPercent > 0.0f) return "LOW_LEVEL_FILL_NOT_BELOW_START";
   if (c.utcOffsetMinutes < -720 || c.utcOffsetMinutes > 840) return "UTC_OFFSET_RANGE";
 
   if (c.ledBrightnessPercent < 1 || c.ledBrightnessPercent > 100) return "LED_BRIGHTNESS";

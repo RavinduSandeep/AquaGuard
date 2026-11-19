@@ -5,10 +5,11 @@
 namespace ag {
 
 namespace {
-void windowFor(const Config& c, uint8_t dayOfWeek, uint16_t& start, uint16_t& end) {
-  const bool weekend = dayOfWeek == 0 || dayOfWeek == 6;
-  start = weekend ? c.weekendStartMin : c.weekdayStartMin;
-  end = weekend ? c.weekendEndMin : c.weekdayEndMin;
+// False when the day has no filling time.
+bool windowFor(const Config& c, uint8_t dayOfWeek, uint16_t& start, uint16_t& end) {
+  start = c.dayStartMin[dayOfWeek];
+  end = c.dayEndMin[dayOfWeek];
+  return (c.scheduleDays >> dayOfWeek) & 1u;
 }
 }  // namespace
 
@@ -16,14 +17,15 @@ bool scheduleAllows(const Config& c, uint8_t dayOfWeek, uint16_t minuteOfDay) {
   if (!c.scheduleEnabled) return true;
   dayOfWeek %= 7;
   uint16_t start, end;
-  windowFor(c, dayOfWeek, start, end);
-  if (start < end) {
-    if (minuteOfDay >= start && minuteOfDay < end) return true;
-  } else if (minuteOfDay >= start) {
-    return true;  // today's window runs past midnight
+  if (windowFor(c, dayOfWeek, start, end)) {
+    if (start < end) {
+      if (minuteOfDay >= start && minuteOfDay < end) return true;
+    } else if (minuteOfDay >= start) {
+      return true;  // today's window runs past midnight
+    }
   }
   // The tail of a window that started yesterday and ran past midnight.
-  windowFor(c, static_cast<uint8_t>((dayOfWeek + 6) % 7), start, end);
+  if (!windowFor(c, static_cast<uint8_t>((dayOfWeek + 6) % 7), start, end)) return false;
   return start > end && minuteOfDay < end;
 }
 

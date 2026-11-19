@@ -88,16 +88,28 @@ unit deep sleep between checks. It can only be switched on at the unit.
 ## Filling times and the settings PIN
 
 Set from the phone app's Control tab, or the Settings form on the local
-dashboard (`scheduleEnabled`, `weekdayStartMin`, `weekdayEndMin`,
-`weekendStartMin`, `weekendEndMin` in minutes after midnight,
-`utcOffsetMinutes`, default 330 for Sri Lanka).
+dashboard. Every day of the week has its own filling time:
+
+| Setting | Meaning |
+|---|---|
+| `scheduleEnabled` | Schedule on or off |
+| `sunStartMin`, `sunEndMin` ... `satStartMin`, `satEndMin` | Start and end for each day, minutes after midnight; a start after the end runs past midnight |
+| `scheduleDays` | Which days have a filling time: add 1 for Sunday, 2 Monday, 4 Tuesday, 8 Wednesday, 16 Thursday, 32 Friday, 64 Saturday (127 = every day) |
+| `lowLevelFillPercent` | Low-level fill, default 15; 0 switches it off; must be below `startFillPercent` |
+| `utcOffsetMinutes` | Local time zone, default 330 for Sri Lanka |
+
+Settings saved by firmware 0.5 (one window for weekdays, one for weekends)
+are read and spread over the days they covered.
 
 | Situation | What the unit does |
 |---|---|
 | Schedule off | Fills whenever the level reaches the start threshold |
 | Inside the window, level at or below start | Starts a fill |
 | Outside the window, level at or below start | Waits; status shows `WAITING_FOR_SUPPLY_WINDOW` |
-| Window ends during an automatic fill | Closes the valve, no fault; continues in the next window if still at or below start |
+| Outside the window, level at or below `lowLevelFillPercent` | Low-level fill: starts a fill straight away and runs it to the stop threshold; warning `LOW_LEVEL_FILL` |
+| Low-level fill gets no water for `noProgressStopMinutes` | Closes the valve, no fault, tries again after `retryMinutes` |
+| A day switched off in `scheduleDays` | No window that day; only a low-level fill can start |
+| Window ends during an automatic fill | Closes the valve, no fault; continues in the next window if still at or below start. If the level is still at or below the low level, the fill carries on |
 | Manual open | Not affected by the schedule |
 | No clock time (no internet since power-up) | Schedule not applied; warning `SCHEDULE_CLOCK_UNKNOWN` |
 
@@ -248,9 +260,11 @@ open to anyone on your home network; keep the unit off guest networks.
 
 - **Supply schedule added** (off by default). The guide fills whenever the
   level reaches the start threshold. With the schedule on, an automatic fill
-  starts only inside the weekday or weekend window (local time from NTP and
+  starts only inside that day's window (local time from NTP and
   `utcOffsetMinutes`), and one that is running when the window ends is
-  stopped without a fault. Manual open, every interlock and every fault are
+  stopped without a fault. A level at or below `lowLevelFillPercent`
+  (default 15 %) fills at any time; such a fill never latches the
+  no-progress fault, it waits `retryMinutes` and tries again. Manual open, every interlock and every fault are
   unchanged. If the unit has no clock time the schedule is not applied (the
   unit fills as the guide describes) and a warning is shown.
 - **Settings PIN added.** A settings change from the phone app must carry a

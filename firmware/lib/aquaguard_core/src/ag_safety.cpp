@@ -170,9 +170,15 @@ Deny SafetyManager::openBlocker() const {
   return Deny::None;
 }
 
+bool SafetyManager::levelIsLow() const {
+  return cfg_.lowLevelFillPercent > 0.0f && in_.levelValid &&
+         in_.levelPercent <= cfg_.lowLevelFillPercent;
+}
+
 bool SafetyManager::waitingForSchedule() const {
   return !valveOpen_ && mode_ == Mode::Auto && in_.outsideSchedule && in_.levelValid &&
-         in_.levelPercent <= cfg_.startFillPercent && openBlocker() == Deny::None;
+         in_.levelPercent <= cfg_.startFillPercent && !levelIsLow() &&
+         openBlocker() == Deny::None;
 }
 
 Phase SafetyManager::phase() const {
@@ -186,6 +192,7 @@ Phase SafetyManager::phase() const {
 void SafetyManager::startFill(uint32_t nowMs, bool manual) {
   valveOpen_ = true;
   manualFill_ = manual;
+  lowLevelFill_ = !manual && in_.outsideSchedule;
   fillStartMs_ = nowMs;
   progressAtMs_ = nowMs;
   progressRefPercent_ = in_.levelPercent;
@@ -250,11 +257,14 @@ void SafetyManager::tick(uint32_t nowMs, const SafetyInputs& in) {
       endFill(nowMs, Deny::FillTimeout, false);
     } else if (manualFill_ && reached(nowMs, manualDeadlineMs_)) {
       endFill(nowMs, Deny::None, true);
-    } else if (!manualFill_ && in.outsideSchedule) {
+    } else if (!manualFill_ && in.outsideSchedule && !lowLevelFill_ && !levelIsLow()) {
       // The supply window closed: stop cleanly instead of waiting for a
       // no-progress fault. The next window resumes from the start threshold.
       endFill(nowMs, Deny::OutsideSchedule, false);
     } else {
+      // A fill that is still low when the window closes carries on as a
+      // low-level fill.
+      if (!manualFill_ && in.outsideSchedule) lowLevelFill_ = true;
       if (in.levelPercent >= progressRefPercent_ + cfg_.minRisePercent) {
         progressRefPercent_ = in.levelPercent;
         progressAtMs_ = nowMs;
@@ -262,7 +272,9 @@ void SafetyManager::tick(uint32_t nowMs, const SafetyInputs& in) {
       }
       const uint32_t flat = nowMs - progressAtMs_;
       if (flat >= cfg_.noProgressStopMinutes * kMinuteMs) {
-        if (cfg_.autoRetry && !manualFill_) {
+        // Outside the filling time the supply is probably off, so a low-level
+        // fill that gets no water waits and tries again; it never latches.
+        if ((cfg_.autoRetry || lowLevelFill_) && !manualFill_) {
           retryWait_ = true;
           retryAtMs_ = nowMs + cfg_.retryMinutes * kMinuteMs;
           emit(Event::RetryScheduled, cfg_.retryMinutes);
@@ -290,8 +302,8 @@ void SafetyManager::tick(uint32_t nowMs, const SafetyInputs& in) {
   if (retryWait_ && reached(nowMs, retryAtMs_)) retryWait_ = false;
 
   // ---- 4. Automatic start with hysteresis: open at start, close at stop.
-  if (!valveOpen_ && mode_ == Mode::Auto && !retryWait_ && !in.outsideSchedule &&
-      in.levelValid && in.levelPercent <= cfg_.startFillPercent &&
+  if (!valveOpen_ && mode_ == Mode::Auto && !retryWait_ &&
+      (!in.outsideSchedule || levelIsLow()) && in.levelValid && in.levelPercent <= cfg_.startFillPercent &&
       openBlocker() == Deny::None) {
     startFill(nowMs, false);
   }
