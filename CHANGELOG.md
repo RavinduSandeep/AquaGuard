@@ -5,6 +5,35 @@ Each program has its own version number (see `versions.json`). Versions follow
 changes that break compatibility. The data schema number goes up whenever the
 shape of the data shared by the unit, Firebase and the app changes.
 
+## 2026-11-19 (diagram and valve buttons)
+
+### Firmware 0.7.0
+
+- `valveOn` / `valveOff` requests (also `POST /api/valve/on`, `/off`): work
+  in every mode and leave the mode alone. On is the time-limited manual
+  fill with every check a manual open has. Off in Auto pauses automatic
+  filling for `retryMinutes` or until the next filling time starts.
+- `fillAtWindowStart` (off by default): open the valve once as each filling
+  time starts, unless the level is within 5 % of the stop threshold.
+- Status: `valve.manualMinutes`, `valve.pauseRemainingS`, warning
+  `AUTO_FILL_PAUSED`.
+- 11 new logic tests (71 in total). Both builds compile; the bench-test
+  build was flashed to the bare board and reports as 0.7.0.
+
+### Phone app 0.8.0
+
+- Tank tab: a live diagram of the installation with tappable parts, and
+  Valve on / Valve off buttons.
+- Filling times: start time typed like an alarm clock (hour, minute,
+  AM/PM); one valve-on time for every day, so only the start is entered;
+  switch for opening the valve when each filling time starts.
+- 3 new tests (29 in total). Checked in demo mode in a browser.
+
+### Data schema 4
+
+- `config.fillAtWindowStart`; `status.valve.manualMinutes` and
+  `pauseRemainingS`; command types `valveOn`, `valveOff`.
+
 ## 2026-11-19
 
 ### Firmware 0.6.0

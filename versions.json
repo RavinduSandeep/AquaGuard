@@ -1,5 +1,5 @@
 {
-  "firmware": "0.6.0",
-  "mobile": "0.7.0",
-  "dataSchema": 3
+  "firmware": "0.7.0",
+  "mobile": "0.8.0",
+  "dataSchema": 4
 }

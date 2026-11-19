@@ -70,6 +70,8 @@ size_t copyLog(LogEntry* out, size_t max, uint32_t afterSeq);  // takes the lock
 ag::Deny cmdMode(const char* mode, Source src);
 ag::Deny cmdOpen(Source src);
 ag::Deny cmdClose(Source src);
+ag::Deny cmdValveOn(Source src);
+ag::Deny cmdValveOff(Source src);
 ag::Deny cmdAck(Source src);
 ag::Deny cmdMute(Source src);
 // Apply a partial settings object. Returns nullptr or a reason string.

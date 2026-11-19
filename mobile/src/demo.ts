@@ -39,7 +39,7 @@ function reset() {
     maximumFillMinutes: 120, progressWindowMinutes: 10, minRisePercent: 1, noProgressStopMinutes: 20,
     autoRetry: false, retryMinutes: 30, manualOpenMinutes: 5, maintenanceMinutes: 10,
     ledBrightnessPercent: 20, buzzerEnabled: true,
-    scheduleEnabled: false, scheduleDays: 127, lowLevelFillPercent: 15, utcOffsetMinutes: -new Date().getTimezoneOffset(),
+    scheduleEnabled: false, scheduleDays: 127, lowLevelFillPercent: 15, fillAtWindowStart: false, utcOffsetMinutes: -new Date().getTimezoneOffset(),
     ...Object.fromEntries(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].flatMap((d) => [[`${d}StartMin`, 0], [`${d}EndMin`, 480]])),
     fullDistanceCm: 35, emptyDistanceCm: 145, validDistanceMinCm: 30, validDistanceMaxCm: 600, commissioned: true,
   };
@@ -60,7 +60,7 @@ function reset() {
   const last = history[history.length - 1];
 
   status = {
-    schema: 3, fw: '0.6.0', deviceId: DEMO_DEVICE_ID, tankName: String(config.tankName),
+    schema: 4, fw: '0.7.0', deviceId: DEMO_DEVICE_ID, tankName: String(config.tankName),
     uptimeS: 3 * 86_400, ts: Math.floor(now / 1000), updatedAt: now,
     level: { valid: true, percent: last.p, litres: Math.round(last.p * 10), distanceCm: 145 - last.p * 1.1, ageMs: 200 },
     mode: 'AUTO', phase: last.v ? 'FILLING' : 'IDLE', armed: true, commissioned: true, remoteControl: true, muted: false,
@@ -107,6 +107,9 @@ export const DEMO_PIN = '4211';
 
 // True while a fill is running outside the filling times because the tank was very low.
 let lowFill = false;
+let pausedUntil = 0; // automatic filling paused after Valve off
+let wasOpen = true;
+let topUpPending = false;
 
 function windowOpen(now: number): boolean {
   const schedule = scheduleFromConfig(config);
@@ -137,7 +140,17 @@ function tick() {
     addEvent('FILL_COMPLETE');
   }
   status.level = { valid: true, percent: Math.round(p * 10) / 10, litres: Math.round((p / 100) * Number(config.usableCapacityLitres)), distanceCm: Math.round((145 - p * 1.1) * 10) / 10, ageMs: 200 };
-  const wantsFill = !status.valve.commanded && status.mode === 'AUTO' && status.armed && p <= Number(config.startFillPercent);
+  if (pausedUntil && (now >= pausedUntil || (open && !wasOpen && config.scheduleEnabled))) pausedUntil = 0;
+  const wantsFill = !pausedUntil && !status.valve.commanded && status.mode === 'AUTO' && status.armed && p <= Number(config.startFillPercent);
+  // A filling time that has just started tops the tank up once, if that is switched on.
+  if (open && !wasOpen && config.scheduleEnabled && config.fillAtWindowStart) topUpPending = true;
+  if (!open) topUpPending = false;
+  wasOpen = open;
+  const topUp = topUpPending && !pausedUntil && !status.valve.commanded && status.mode === 'AUTO' && status.armed && p <= Number(config.stopFillPercent) - 5;
+  if (topUp) {
+    topUpPending = false;
+    setValve(true);
+  }
   if (wantsFill && (open || veryLow)) {
     lowFill = !open;
     setValve(true);
@@ -151,11 +164,13 @@ function tick() {
     uptimeS: Math.round((now - bootedAt) / 1000),
     phase: !status.armed ? 'DISARMED' : status.valve.commanded ? 'FILLING' : 'IDLE',
     schedule: config.scheduleEnabled ? { clockKnown: true, open, waiting, lowLevelFill } : undefined,
-    warnings: waiting ? ['WAITING_FOR_SUPPLY_WINDOW'] : lowLevelFill ? ['LOW_LEVEL_FILL'] : [],
+    warnings: [...(waiting ? ['WAITING_FOR_SUPPLY_WINDOW'] : lowLevelFill ? ['LOW_LEVEL_FILL'] : []), ...(pausedUntil ? ['AUTO_FILL_PAUSED'] : [])],
     valve: {
       ...status.valve,
       fillRuntimeS: status.valve.commanded ? Math.round((now - fillStartedAt) / 1000) : 0,
       manualRemainingS: status.valve.commanded && manualUntil ? Math.max(0, Math.round((manualUntil - now) / 1000)) : 0,
+      manualMinutes: Number(config.manualOpenMinutes),
+      pauseRemainingS: pausedUntil ? Math.max(1, Math.round((pausedUntil - now) / 1000)) : 0,
       openBlocker: blocker(),
     },
   };
@@ -230,6 +245,17 @@ export async function demoCommand(command: { type: string; mode?: string; config
       if (status.mode === 'AUTO') reason = 'WRONG_MODE';
       else if (blocker() !== 'NONE') reason = blocker();
       else setValve(true, true);
+      break;
+    case 'valveOn':
+      if (blocker() !== 'NONE') reason = blocker();
+      else {
+        pausedUntil = 0;
+        setValve(true, true);
+      }
+      break;
+    case 'valveOff':
+      setValve(false);
+      if (status.mode === 'AUTO') pausedUntil = Date.now() + 60_000; // the unit pauses for retryMinutes; the demo runs faster
       break;
     case 'ack':
       if (!status.armed) addEvent('ARMED');

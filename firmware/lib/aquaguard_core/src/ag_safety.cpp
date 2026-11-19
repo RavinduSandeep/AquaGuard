@@ -127,6 +127,9 @@ void SafetyManager::begin(const Config& cfg, bool configValid, uint16_t restored
   k1Mismatch_ = false;
   retryWait_ = false;
   noProgressWarning_ = false;
+  wasOutsideSchedule_ = false;
+  topUpPending_ = false;
+  paused_ = false;
   emit(Event::Boot, faults_);
 }
 
@@ -136,6 +139,7 @@ void SafetyManager::applyConfig(const Config& cfg, uint32_t nowMs) {
   configValid_ = true;
   faults_ &= static_cast<uint16_t>(~kFaultConfig);
   if (!cfg_.commissioned) armed_ = false;
+  if (!cfg_.scheduleEnabled || !cfg_.fillAtWindowStart) topUpPending_ = false;
   emit(Event::ConfigChanged);
 }
 
@@ -192,6 +196,7 @@ Phase SafetyManager::phase() const {
 void SafetyManager::startFill(uint32_t nowMs, bool manual) {
   valveOpen_ = true;
   manualFill_ = manual;
+  if (!manual) topUpPending_ = false;
   lowLevelFill_ = !manual && in_.outsideSchedule;
   fillStartMs_ = nowMs;
   progressAtMs_ = nowMs;
@@ -301,9 +306,27 @@ void SafetyManager::tick(uint32_t nowMs, const SafetyInputs& in) {
 
   if (retryWait_ && reached(nowMs, retryAtMs_)) retryWait_ = false;
 
+  // A filling time that has just started may top the tank up once. Only a
+  // real change from outside to inside counts: a restart inside a filling
+  // time, or switching the schedule off, never triggers one.
+  const bool windowStarted = wasOutsideSchedule_ && !in.outsideSchedule && cfg_.scheduleEnabled;
+  if (in.outsideSchedule) {
+    topUpPending_ = false;
+  } else if (windowStarted && cfg_.fillAtWindowStart) {
+    topUpPending_ = true;
+  }
+  wasOutsideSchedule_ = in.outsideSchedule;
+
+  // A pause from a valve OFF request ends by itself, and a new filling time
+  // always gets its turn.
+  if (paused_ && (windowStarted || reached(nowMs, pauseUntilMs_))) paused_ = false;
+
   // ---- 4. Automatic start with hysteresis: open at start, close at stop.
-  if (!valveOpen_ && mode_ == Mode::Auto && !retryWait_ &&
-      (!in.outsideSchedule || levelIsLow()) && in.levelValid && in.levelPercent <= cfg_.startFillPercent &&
+  const bool topUp = topUpPending_ && in.levelValid &&
+                     in.levelPercent <= cfg_.stopFillPercent - kTopUpMarginPercent;
+  if (!valveOpen_ && mode_ == Mode::Auto && !retryWait_ && !paused_ &&
+      (!in.outsideSchedule || levelIsLow()) && in.levelValid &&
+      (in.levelPercent <= cfg_.startFillPercent || topUp) &&
       openBlocker() == Deny::None) {
     startFill(nowMs, false);
   }
@@ -321,6 +344,7 @@ Deny SafetyManager::requestMode(Mode m, uint32_t nowMs) {
   // Every mode change starts from a closed valve.
   if (valveOpen_) endFill(nowMs, Deny::None, false);
   retryWait_ = false;
+  paused_ = false;
   mode_ = m;
   emit(Event::ModeChanged, static_cast<int32_t>(m));
   return Deny::None;
@@ -345,6 +369,27 @@ Deny SafetyManager::requestClose(uint32_t nowMs) {
   if (mode_ == Mode::Auto) {
     mode_ = Mode::Manual;
     emit(Event::ModeChanged, static_cast<int32_t>(mode_));
+  }
+  return Deny::None;
+}
+
+Deny SafetyManager::requestValveOn(uint32_t nowMs) {
+  const Deny blocker = openBlocker();
+  if (blocker != Deny::None) return deny(blocker);
+  paused_ = false;
+  if (!valveOpen_) {
+    startFill(nowMs, true);
+    emit(Event::ManualOpen, cfg_.manualOpenMinutes);
+  }
+  return Deny::None;
+}
+
+Deny SafetyManager::requestValveOff(uint32_t nowMs) {
+  if (valveOpen_) endFill(nowMs, Deny::None, false);
+  retryWait_ = false;
+  if (mode_ == Mode::Auto) {
+    paused_ = true;
+    pauseUntilMs_ = nowMs + cfg_.retryMinutes * kMinuteMs;
   }
   return Deny::None;
 }
@@ -431,6 +476,11 @@ uint32_t SafetyManager::manualRemainingS(uint32_t nowMs) const {
 uint32_t SafetyManager::maintenanceRemainingS(uint32_t nowMs) const {
   if (mode_ != Mode::Maintenance) return 0u;
   return remainingS(nowMs, maintenanceStartMs_ + cfg_.maintenanceMinutes * kMinuteMs);
+}
+uint32_t SafetyManager::pauseRemainingS(uint32_t nowMs) const {
+  if (!paused_) return 0u;
+  const uint32_t left = remainingS(nowMs, pauseUntilMs_);
+  return left ? left : 1u;
 }
 uint32_t SafetyManager::retryRemainingS(uint32_t nowMs) const {
   return retryWait_ ? remainingS(nowMs, retryAtMs_) : 0u;

@@ -89,6 +89,17 @@ ag::Deny cmdClose(Source) {
   return safety.requestClose(millis());
 }
 
+ag::Deny cmdValveOn(Source src) {
+  Lock l;
+  if (!remoteAllowed(src)) return ag::Deny::RemoteDisabled;
+  return safety.requestValveOn(millis());
+}
+
+ag::Deny cmdValveOff(Source) {
+  Lock l;  // closing is always allowed, from anywhere
+  return safety.requestValveOff(millis());
+}
+
 ag::Deny cmdAck(Source src) {
   Lock l;
   if (!remoteAllowed(src)) return ag::Deny::RemoteDisabled;
@@ -212,6 +223,8 @@ void fillStatus(JsonObject o) {
   valve["commanded"] = safety.valveRequest();
   valve["fillRuntimeS"] = safety.fillRuntimeS(now);
   valve["manualRemainingS"] = safety.manualRemainingS(now);
+  valve["manualMinutes"] = cfg.manualOpenMinutes;
+  valve["pauseRemainingS"] = safety.pauseRemainingS(now);
   valve["openBlocker"] = ag::denyName(safety.openBlocker());
   valve["fillCount"] = safety.fillCount();
   valve["lastFillS"] = safety.lastFillDurationS();
@@ -230,6 +243,7 @@ void fillStatus(JsonObject o) {
   if (!valid && !(safety.faults() & ag::kFaultSensor)) warnings.add("SENSOR_STALE");
   if (safety.noProgressWarning()) warnings.add("NO_PROGRESS_WARNING");
   if (safety.retryRemainingS(now)) warnings.add("RETRY_WAIT");
+  if (safety.pauseRemainingS(now)) warnings.add("AUTO_FILL_PAUSED");
   if (safety.waitingForSchedule()) warnings.add("WAITING_FOR_SUPPLY_WINDOW");
   if (safety.lowLevelFillActive()) warnings.add("LOW_LEVEL_FILL");
   if (cfg.scheduleEnabled && !epochNow()) warnings.add("SCHEDULE_CLOCK_UNKNOWN");

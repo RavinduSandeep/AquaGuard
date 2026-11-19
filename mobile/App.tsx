@@ -253,7 +253,7 @@ function Main({ user, deviceId, unitActions, onExitDemo }: { user: Who; deviceId
       ) : null}
 
       <View style={{ flex: 1 }}>
-        {tab === 'Tank' ? <Dashboard live={live} onOpenControl={() => setTab('Control')} /> : null}
+        {tab === 'Tank' ? <Dashboard deviceId={deviceId} live={live} onOpenControl={() => setTab('Control')} /> : null}
         {tab === 'History' ? <History deviceId={deviceId} live={live} /> : null}
         {tab === 'Control' ? <Controls deviceId={deviceId} live={live} /> : null}
         {tab === 'Settings' ? <Settings deviceId={deviceId} live={live} /> : null}

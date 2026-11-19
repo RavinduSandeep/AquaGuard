@@ -15,19 +15,41 @@ tab shows the app version, the unit's firmware version and the data schema of bo
 
 | Tab | What it does |
 |---|---|
-| **Tank** | Level, estimated litres, state banner, valve command, float / emergency stop / K1, reading age |
+| **Tank** | Level, a live diagram of the installation, **Valve on / off**, estimated litres, state banner, float / emergency stop / K1, reading age |
 | **History** | Level chart for 24 hours, 3 days or 7 days with fill periods shaded, table view, event list |
 | **Control** | Close, **filling times**, mode, time-limited manual open, acknowledge, mute. The unit decides and its refusal reason is shown |
 | **Settings** | Data entry for tank name, capacity, thresholds, fill supervision, indication. Calibration is read-only here. Saving asks for the settings PIN |
 | **Logbook** | Data entry for monthly and quarterly checks, notes, and the installation record |
 | **About** | Versions, connection state, sign out |
 
+### The diagram and the valve buttons
+
+The Tank tab opens with a picture of the installation: water line, valve,
+tank, the ultrasonic level sensor, the float switch and the controller. The
+tank shows the level and the start, stop and low marks. While the valve is
+commanded open the pipe is drawn with moving water; this follows the command,
+not real flow. Tap a part (or its name under the picture) to read what it is
+and what it reports now.
+
+**Valve on** and **Valve off** work in any mode and outside the filling
+times, and leave the mode and the filling times as they are. On is the unit's
+time-limited manual fill (the "Manual open time" on the Settings tab, 1 to 15
+minutes): it also stops at the stop level and every interlock stays active.
+Off in Auto pauses automatic filling for the unit's retry time (30 minutes by
+default) or until the next filling time starts. Only the owner's requests are
+accepted. This needs firmware 0.7.0 or later.
+
 ### Filling times and the settings PIN
 
 On the Control tab, switch on **Fill only when the supply is on**. The week
-is listed Monday to Sunday with a bar for each day; tap a day to set when the
-water comes on and goes off (15-minute or 1-hour steps; a time that runs past
-midnight is fine), or switch that day off. **Every day**, **Mon to Fri** and
+is listed Monday to Sunday with a bar for each day; tap a day to enter its
+start time the way an alarm clock does (hour, minute, AM or PM), or switch
+that day off. **Valve on time** is one length for every day (typed in hours
+and minutes, or picked from 10 min to 2 h): each filling time ends that long
+after its start. **Open the valve when each filling time starts** makes the
+unit fill at the start time even if the tank is not low (firmware 0.7.0 or
+later); with it off, the valve opens inside a filling time only when the
+level is at or below the start point. **Every day**, **Mon to Fri** and
 **Sat and Sun** copy the selected day's setting to other days.
 
 **Fill at any time when the tank is very low** (15 % by default, in steps of

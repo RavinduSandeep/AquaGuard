@@ -96,6 +96,7 @@ dashboard. Every day of the week has its own filling time:
 | `sunStartMin`, `sunEndMin` ... `satStartMin`, `satEndMin` | Start and end for each day, minutes after midnight; a start after the end runs past midnight |
 | `scheduleDays` | Which days have a filling time: add 1 for Sunday, 2 Monday, 4 Tuesday, 8 Wednesday, 16 Thursday, 32 Friday, 64 Saturday (127 = every day) |
 | `lowLevelFillPercent` | Low-level fill, default 15; 0 switches it off; must be below `startFillPercent` |
+| `fillAtWindowStart` | Open the valve as each filling time starts (top-up), default off |
 | `utcOffsetMinutes` | Local time zone, default 330 for Sri Lanka |
 
 Settings saved by firmware 0.5 (one window for weekdays, one for weekends)
@@ -108,6 +109,8 @@ are read and spread over the days they covered.
 | Outside the window, level at or below start | Waits; status shows `WAITING_FOR_SUPPLY_WINDOW` |
 | Outside the window, level at or below `lowLevelFillPercent` | Low-level fill: starts a fill straight away and runs it to the stop threshold; warning `LOW_LEVEL_FILL` |
 | Low-level fill gets no water for `noProgressStopMinutes` | Closes the valve, no fault, tries again after `retryMinutes` |
+| A filling time starts and `fillAtWindowStart` is on | Opens the valve once, unless the level is within 5 % of the stop threshold |
+| Valve off was requested in AUTO | Automatic filling paused for `retryMinutes`, or until the next filling time starts; warning `AUTO_FILL_PAUSED` |
 | A day switched off in `scheduleDays` | No window that day; only a low-level fill can start |
 | Window ends during an automatic fill | Closes the valve, no fault; continues in the next window if still at or below start. If the level is still at or below the low level, the fill carries on |
 | Manual open | Not affected by the schedule |
@@ -226,6 +229,7 @@ Open `http://<unit-ip>/` for the dashboard. Endpoints (guide section 15):
 | `POST /api/config` | token | Change settings (validated as a whole) |
 | `POST /api/mode` | token | `{"mode":"AUTO"｜"MANUAL"｜"MAINTENANCE"}` |
 | `POST /api/valve/open`, `/api/valve/close` | token | Manual requests |
+| `POST /api/valve/on`, `/api/valve/off` | token | Valve on / off in any mode, without changing the mode |
 | `POST /api/fault/ack` | token | Acknowledge and arm |
 | `POST /api/buzzer/mute` | token | Mute (does not clear faults) |
 | `POST /api/calibrate/full`, `/empty` | token | Capture the median of 21 settled readings |
@@ -267,6 +271,19 @@ open to anyone on your home network; keep the unit off guest networks.
   no-progress fault, it waits `retryMinutes` and tries again. Manual open, every interlock and every fault are
   unchanged. If the unit has no clock time the schedule is not applied (the
   unit fills as the guide describes) and a warning is shown.
+- **Top-up at the start of a filling time added** (`fillAtWindowStart`, off
+  by default). When on, the valve opens as each filling time starts even if
+  the level is above the start threshold, once per filling time, unless the
+  level is within 5 % of the stop threshold. It ends at the stop threshold
+  or when the filling time ends.
+- **Valve on / off in any mode added.** The guide accepts OPEN only in
+  MANUAL or MAINTENANCE, and CLOSE in AUTO drops to MANUAL; both still
+  behave that way. The new `valveOn` request starts the same time-limited
+  manual fill (`manualOpenMinutes`) in any mode, with every check OPEN has,
+  and leaves the mode alone. `valveOff` closes the valve and stays in the
+  current mode; in AUTO it pauses automatic filling for `retryMinutes` or
+  until the next filling time starts, whichever is first, so the valve does
+  not reopen at once.
 - **Settings PIN added.** A settings change from the phone app must carry a
   4 to 8 digit PIN (default `4211`). Five wrong PINs in a row block further
   attempts for 5 minutes. The PIN is changed on the local dashboard only.

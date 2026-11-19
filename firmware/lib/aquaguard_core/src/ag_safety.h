@@ -96,6 +96,9 @@ const char* eventName(Event e);
 class SafetyManager {
  public:
   static constexpr uint32_t kK1MismatchMs = 500;
+  // A top-up at the start of a filling time is skipped when the level is
+  // already within this much of the stop threshold.
+  static constexpr float kTopUpMarginPercent = 5.0f;
 
   // `restoredFaults` are persistent latches read back from storage at boot.
   void begin(const Config& cfg, bool configValid, uint16_t restoredFaults, uint32_t nowMs);
@@ -116,6 +119,14 @@ class SafetyManager {
   Deny requestMode(Mode m, uint32_t nowMs);
   Deny requestOpen(uint32_t nowMs);
   Deny requestClose(uint32_t nowMs);
+  // Quick valve buttons. Unlike requestOpen/requestClose they work in every
+  // mode and leave the mode alone, so the schedule carries on afterwards.
+  // ON is a time-limited manual fill and passes every check OPEN does.
+  // OFF is always honoured; in AUTO it also pauses automatic filling for
+  // retryMinutes (or until the next filling time starts) so the valve does
+  // not reopen at once.
+  Deny requestValveOn(uint32_t nowMs);
+  Deny requestValveOff(uint32_t nowMs);
   Deny acknowledge(uint32_t nowMs, bool local);
   // Re-arm after a deliberate power-saving sleep that was entered while armed.
   // Unlike acknowledge() it never clears a latch: any fault, an unhealthy
@@ -140,11 +151,15 @@ class SafetyManager {
   bool waitingForSchedule() const;
   // A fill is running outside the filling time because the level was low.
   bool lowLevelFillActive() const { return valveOpen_ && lowLevelFill_; }
+  // A filling time has started and its top-up has not run yet.
+  bool topUpPending() const { return topUpPending_; }
 
   uint32_t fillRuntimeS(uint32_t nowMs) const;
   uint32_t manualRemainingS(uint32_t nowMs) const;
   uint32_t maintenanceRemainingS(uint32_t nowMs) const;
   uint32_t retryRemainingS(uint32_t nowMs) const;
+  // Automatic filling is paused after a valve OFF request (0 = not paused).
+  uint32_t pauseRemainingS(uint32_t nowMs) const;
   uint32_t fillCount() const { return fillCount_; }
   uint32_t lastFillDurationS() const { return lastFillDurationS_; }
 
@@ -173,6 +188,10 @@ class SafetyManager {
   bool valveOpen_ = false;
   bool manualFill_ = false;
   bool lowLevelFill_ = false;  // this fill may run outside the filling time
+  bool wasOutsideSchedule_ = false;
+  bool topUpPending_ = false;  // a filling time has started and not yet been used
+  bool paused_ = false;        // automatic filling paused by a valve OFF request
+  uint32_t pauseUntilMs_ = 0;
   uint32_t fillStartMs_ = 0;
   uint32_t manualDeadlineMs_ = 0;
   uint32_t progressAtMs_ = 0;

@@ -309,6 +309,8 @@ void routes() {
 
   onCommand("/api/valve/open", app::cmdOpen);
   onCommand("/api/valve/close", app::cmdClose);
+  onCommand("/api/valve/on", app::cmdValveOn);
+  onCommand("/api/valve/off", app::cmdValveOff);
   onCommand("/api/fault/ack", app::cmdAck);
   onCommand("/api/buzzer/mute", app::cmdMute);
 

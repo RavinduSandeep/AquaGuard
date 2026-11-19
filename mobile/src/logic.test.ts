@@ -23,7 +23,14 @@ import {
   humanize,
   isOnline,
   levelIsCurrent,
+  applyOnTime,
+  commonOnTime,
   copyDay,
+  formatLength,
+  from12h,
+  parseOnTime,
+  setDayStart,
+  to12h,
   groupDays,
   MAX_SAVED_UNITS,
   normalizeDeviceId,
@@ -220,6 +227,7 @@ const week = (start: number, end: number): Schedule => ({
   enabled: true,
   days: Array.from({ length: 7 }, () => ({ on: true, start, end })),
   lowLevel: 15,
+  topUp: false,
 });
 const nights = week(0, 480);
 
@@ -360,4 +368,67 @@ test('saved units: the list is capped', () => {
   let list: ReturnType<typeof parseSavedUnits> = [];
   for (let i = 0; i < MAX_SAVED_UNITS + 3; i++) list = upsertUnit(list, `ag-${i.toString(16).padStart(6, '0')}`);
   assert.equal(list.length, MAX_SAVED_UNITS);
+});
+
+test('alarm-clock time entry', () => {
+  assert.deepEqual(to12h(0), { hour: 12, minute: 0, pm: false });
+  assert.deepEqual(to12h(810), { hour: 1, minute: 30, pm: true });
+  assert.deepEqual(to12h(720), { hour: 12, minute: 0, pm: true });
+  assert.equal(from12h('12', '00', false), 0);
+  assert.equal(from12h('12', '5', true), 725);
+  assert.equal(from12h('5', '30', false), 330);
+  assert.equal(from12h('11', '59', true), 1439);
+  assert.equal(from12h('', '30', false), null);
+  assert.equal(from12h('0', '30', false), null);
+  assert.equal(from12h('13', '00', false), null);
+  assert.equal(from12h('5', '60', false), null);
+  assert.equal(from12h('5', 'x', false), null);
+  for (const m of [0, 1, 59, 60, 719, 720, 721, 1439]) {
+    const t = to12h(m);
+    assert.equal(from12h(String(t.hour), String(t.minute), t.pm), m);
+  }
+});
+
+test('one valve-on time for every day, entered with the start time only', () => {
+  let s = week(0, 480);
+  assert.equal(commonOnTime(s), 480);
+  s.days[2].end = 600;
+  assert.equal(commonOnTime(s), null);
+
+  s = applyOnTime(s, 10);
+  assert.equal(commonOnTime(s), 10);
+  assert.deepEqual(s.days[2], { on: true, start: 0, end: 10 });
+
+  s = setDayStart(s, 5, 330); // Friday 5:30 am
+  assert.deepEqual(s.days[5], { on: true, start: 330, end: 340 });
+  assert.equal(commonOnTime(s), 10);
+
+  s = setDayStart(s, 6, 1435); // runs past midnight
+  assert.deepEqual(s.days[6], { on: true, start: 1435, end: 5 });
+  assert.equal(commonOnTime(s), 10);
+
+  assert.equal(commonOnTime(applyOnTime(s, 0)), 1); // never an empty filling time
+  assert.equal(commonOnTime(applyOnTime(s, 5000)), 1439);
+
+  assert.equal(parseOnTime('', '10'), 10);
+  assert.equal(parseOnTime('1', '30'), 90);
+  assert.equal(parseOnTime('2', ''), 120);
+  assert.equal(parseOnTime('0', '0'), null);
+  assert.equal(parseOnTime('1', '60'), null);
+  assert.equal(parseOnTime('24', '0'), null);
+  assert.equal(formatLength(10), '10 min');
+  assert.equal(formatLength(90), '1 h 30 min');
+});
+
+test('the top-up setting is only sent to units that have it', () => {
+  const config: DeviceConfig = { scheduleEnabled: true, scheduleDays: 127, startFillPercent: 35, lowLevelFillPercent: 15 };
+  for (const key of ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']) {
+    config[`${key}StartMin`] = 0;
+    config[`${key}EndMin`] = 480;
+  }
+  const old = scheduleFromConfig(config)!;
+  assert.equal(old.topUp, false);
+  assert.deepEqual(schedulePatch(config, { ...old, topUp: true }).patch, {});
+  const withIt = { ...config, fillAtWindowStart: false };
+  assert.deepEqual(schedulePatch(withIt, { ...scheduleFromConfig(withIt)!, topUp: true }).patch, { fillAtWindowStart: true });
 });

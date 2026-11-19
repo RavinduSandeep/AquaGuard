@@ -204,6 +204,8 @@ const char* runCommand(JsonObjectConst cmd, uint32_t epoch) {
   ag::Deny d;
   if (!strcmp(type, "close")) d = app::cmdClose(src);
   else if (!strcmp(type, "open")) d = app::cmdOpen(src);
+  else if (!strcmp(type, "valveOn")) d = app::cmdValveOn(src);
+  else if (!strcmp(type, "valveOff")) d = app::cmdValveOff(src);
   else if (!strcmp(type, "ack")) d = app::cmdAck(src);
   else if (!strcmp(type, "mute")) d = app::cmdMute(src);
   else if (!strcmp(type, "setMode")) d = app::cmdMode(cmd["mode"] | "", src);

@@ -2,13 +2,13 @@
   "expo": {
     "name": "AquaGuard",
     "slug": "aquaguard",
-    "version": "0.7.0",
+    "version": "0.8.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "700",
+      "buildNumber": "800",
       "bundleIdentifier": "com.aquaguard.app"
     },
     "android": {
@@ -19,7 +19,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "versionCode": 700,
+      "versionCode": 800,
       "package": "com.aquaguard.app"
     },
     "web": {

@@ -27,6 +27,10 @@ export type DeviceStatus = {
     commanded: boolean;
     fillRuntimeS: number;
     manualRemainingS: number;
+    /** How long a manual valve-on lasts. Firmware 0.7 and later. */
+    manualMinutes?: number;
+    /** Automatic filling paused after Valve off. Firmware 0.7 and later. */
+    pauseRemainingS?: number;
     openBlocker: string;
     fillCount: number;
     lastFillS: number;
@@ -143,6 +147,8 @@ const LABELS: Record<string, string> = {
   LOW_LEVEL_FILL: 'Tank was very low: filling outside the filling times',
   LOW_LEVEL_FILL_NOT_BELOW_START: 'The low level must be below the start point',
   LOW_LEVEL_FILL_RANGE: 'The low level is out of range',
+  AUTO_FILL_PAUSED: 'Automatic filling is paused after Valve off',
+  UNKNOWN_COMMAND: 'The unit does not know this request. Update its firmware',
   NONE: 'Nothing',
 };
 
@@ -421,6 +427,8 @@ export type Schedule = {
   days: DayWindow[];
   /** Fill at any time when the level is at or below this. 0 = switched off. */
   lowLevel: number;
+  /** Open the valve as each filling time starts, even if the tank is not low. */
+  topUp: boolean;
 };
 
 export const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
@@ -441,6 +449,7 @@ export function scheduleFromConfig(config: DeviceConfig | null): Schedule | null
       end: Number(config[`${key}EndMin`] ?? 480),
     })),
     lowLevel: Number(config.lowLevelFillPercent ?? DEFAULT_LOW_LEVEL),
+    topUp: Boolean(config.fillAtWindowStart),
   };
 }
 
@@ -468,6 +477,8 @@ export function schedulePatch(
     put(`${key}EndMin`, draft.days[d].end);
   });
   put('lowLevelFillPercent', draft.lowLevel);
+  // Units older than firmware 0.7 do not have this setting.
+  if (config.fillAtWindowStart !== undefined) put('fillAtWindowStart', draft.topUp);
   return { patch };
 }
 
@@ -515,13 +526,64 @@ export function windowMinutes(start: number, end: number): number {
   return end > start ? end - start : end + MINUTES_PER_DAY - start;
 }
 
+/** 10 -> "10 min", 90 -> "1 h 30 min". */
+export function formatLength(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return hours && mins ? `${hours} h ${mins} min` : hours ? `${hours} h` : `${mins} min`;
+}
+
 /** "12:00 am to 8:00 am (8 h)"; says "next day" when it runs past midnight. */
 export function describeWindow(start: number, end: number): string {
-  const length = windowMinutes(start, end);
-  const hours = Math.floor(length / 60);
-  const mins = length % 60;
-  const lengthText = hours && mins ? `${hours} h ${mins} min` : hours ? `${hours} h` : `${mins} min`;
-  return `${formatClock(start)} to ${formatClock(end)}${end < start ? ' next day' : ''} (${lengthText})`;
+  return `${formatClock(start)} to ${formatClock(end)}${end < start ? ' next day' : ''} (${formatLength(windowMinutes(start, end))})`;
+}
+
+/** Minutes after midnight as an alarm-clock time: 810 -> 1:30 pm. */
+export function to12h(minuteOfDay: number): { hour: number; minute: number; pm: boolean } {
+  const m = stepClock(Math.round(minuteOfDay), 0);
+  const h = Math.floor(m / 60);
+  return { hour: h % 12 === 0 ? 12 : h % 12, minute: m % 60, pm: h >= 12 };
+}
+
+/**
+ * What was typed into an alarm-clock time entry, as minutes after midnight.
+ * null while it is not a complete time (hour 1 to 12, minute 0 to 59).
+ */
+export function from12h(hourText: string, minuteText: string, pm: boolean): number | null {
+  if (!/^\d{1,2}$/.test(hourText.trim()) || !/^\d{1,2}$/.test(minuteText.trim())) return null;
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  if (hour < 1 || hour > 12 || minute > 59) return null;
+  return ((hour % 12) + (pm ? 12 : 0)) * 60 + minute;
+}
+
+/** Longest valve-on time that can be set: the window must be shorter than a day. */
+export const MAX_ON_TIME = MINUTES_PER_DAY - 1;
+
+/** The valve-on time when every day uses the same one, otherwise null. */
+export function commonOnTime(s: Schedule): number | null {
+  const lengths = s.days.map((d) => windowMinutes(d.start, d.end));
+  return lengths.every((l) => l === lengths[0]) ? lengths[0] : null;
+}
+
+/** Gives every day the same valve-on time, keeping each day's start. */
+export function applyOnTime(s: Schedule, minutes: number): Schedule {
+  const length = Math.max(1, Math.min(MAX_ON_TIME, Math.round(minutes)));
+  return { ...s, days: s.days.map((d) => ({ ...d, end: stepClock(d.start, length) })) };
+}
+
+/** Moves one day's start and keeps how long the valve may stay on that day. */
+export function setDayStart(s: Schedule, day: number, start: number): Schedule {
+  return { ...s, days: s.days.map((d, i) => (i === day ? { ...d, start, end: stepClock(start, windowMinutes(d.start, d.end)) } : d)) };
+}
+
+/** Hours and minutes typed for the valve-on time, as minutes. null if not usable. */
+export function parseOnTime(hoursText: string, minutesText: string): number | null {
+  const h = hoursText.trim() === '' ? '0' : hoursText.trim();
+  const m = minutesText.trim() === '' ? '0' : minutesText.trim();
+  if (!/^\d{1,2}$/.test(h) || !/^\d{1,2}$/.test(m)) return null;
+  const total = Number(h) * 60 + Number(m);
+  return Number(m) <= 59 && total >= 1 && total <= MAX_ON_TIME ? total : null;
 }
 
 /** Parts of the day covered by a window, as fractions 0..1, for the day bar. */

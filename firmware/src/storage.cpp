@@ -90,6 +90,7 @@ void configToJson(const ag::Config& c, JsonObject o) {
   }
   o["utcOffsetMinutes"] = c.utcOffsetMinutes;
   o["lowLevelFillPercent"] = c.lowLevelFillPercent;
+  o["fillAtWindowStart"] = c.fillAtWindowStart;
   o["ledBrightnessPercent"] = c.ledBrightnessPercent;
   o["buzzerEnabled"] = c.buzzerEnabled;
 }
@@ -152,6 +153,7 @@ const char* configFromJson(JsonObjectConst in, ag::Config& c, bool remote) {
   readNumber(in, "scheduleDays", c.scheduleDays, &err);
   readNumber(in, "utcOffsetMinutes", c.utcOffsetMinutes, &err);
   readNumber(in, "lowLevelFillPercent", c.lowLevelFillPercent, &err);
+  readBool(in, "fillAtWindowStart", c.fillAtWindowStart, &err);
   readNumber(in, "ledBrightnessPercent", c.ledBrightnessPercent, &err);
   readBool(in, "buzzerEnabled", c.buzzerEnabled, &err);
   if (err) return err;

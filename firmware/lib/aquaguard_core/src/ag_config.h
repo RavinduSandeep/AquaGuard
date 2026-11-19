@@ -59,6 +59,10 @@ struct Config {
   // fill at any time, so the tank is not left empty until the next filling
   // time. 0 switches it off. Must stay below startFillPercent.
   float lowLevelFillPercent = 15.0f;
+  // Top-up: when on, the unit opens the valve as each filling time starts,
+  // even if the level is above startFillPercent, as long as it is at least
+  // kTopUpMarginPercent below the stop threshold. Once per filling time.
+  bool fillAtWindowStart = false;
 
   // Indication
   uint8_t ledBrightnessPercent = 20;

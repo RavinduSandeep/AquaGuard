@@ -12,9 +12,9 @@ from anywhere.
 
 | Program | Version | Where it lives | Status |
 |---|---|---|---|
-| Firmware (ESP32-S3) | **0.6.0** | [`firmware/`](firmware/) | Bench-test build runs on a bare ESP32-S3 N16R8 and reports to Firebase; 60 logic tests pass; not yet run with the sensor, valve or interlock wired |
-| Phone app (Android, iOS, web) | **0.7.0** | [`mobile/`](mobile/) | Type-checks; 26 tests pass; shows live data from the bench unit; filling times and PIN checked in demo mode only; unit list checked in a browser with one real unit |
-| Data schema (unit ↔ cloud ↔ app) | **3** | [`docs/firebase-setup.md`](docs/firebase-setup.md) | A filling time per day and the low-level fill |
+| Firmware (ESP32-S3) | **0.7.0** | [`firmware/`](firmware/) | Bench-test build runs on a bare ESP32-S3 N16R8 and reports to Firebase; 71 logic tests pass; not yet run with the sensor, valve or interlock wired |
+| Phone app (Android, iOS, web) | **0.8.0** | [`mobile/`](mobile/) | Type-checks; 29 tests pass; shows live data from the bench unit; filling times, PIN and valve buttons checked in demo mode only; unit list checked in a browser with one real unit |
+| Data schema (unit ↔ cloud ↔ app) | **4** | [`docs/firebase-setup.md`](docs/firebase-setup.md) | Top-up setting, valve on / off requests |
 | Project guide | 13 Nov 2026 | [`documents/`](documents/) | Hardware design, 21 pages |
 | Components and wiring sheet | 16 Nov 2026 | [PDF](documents/AquaGuard_Components_and_Wiring.pdf) | Parts list and wiring diagram, 2 pages, taken from the project guide |
 | Users and sharing guide | 16 Nov 2026 | [PDF](documents/AquaGuard_Users_and_Sharing_Guide.pdf) | Adding people and more units, 4 pages; the cases in it are not yet tried |
@@ -107,7 +107,7 @@ Alternatives considered and the reasons are in
 - Hardware validation of the firmware (sensor frames, interlocks, valve timing).
 - The Firebase rules test (`firebase/rules.test.mjs`) has not been run; it
   needs Java for the local emulator.
-- A bare board on bench-test firmware 0.6.0 reports to the live Firebase
+- A bare board on bench-test firmware 0.7.0 reports to the live Firebase
   project and the app shows its live data. No multi-user case has been tried.
 - Filling times (one per day), the low-level fill and the settings PIN are
   tested as logic (firmware and app tests) and in the app's demo. Saving
@@ -118,6 +118,16 @@ Alternatives considered and the reasons are in
   live project on 19 November 2026. The unit still reports and the app still
   shows its data under them. A viewer saving with the PIN, and an owner
   sending a request, have not been tried under the new rules.
+- Valve on / off from the Tank tab, the top-up at the start of a filling
+  time and the alarm-style time entry are tested as logic and in the app's
+  demo, not against a real unit.
+- Valve on from the app opens the valve remotely for up to
+  `manualOpenMinutes` (5 by default, 15 at most) in any mode. The project
+  guide only allows a manual open in Manual or Maintenance; this is listed
+  under "Differences from the guide". The interlocks, stop level and time
+  limit still apply, but nobody may be near the tank.
+- The diagram's moving water follows the valve command. There is no flow
+  sensor, so it cannot show whether water is really flowing.
 - A low-level fill opens the valve outside the filling times. If the supply
   is off it gets no water: the valve stays open for `noProgressStopMinutes`
   (20 by default), closes, and tries again after `retryMinutes` (30), for as
@@ -164,10 +174,11 @@ view. Details and emulator options are in [`mobile/README.md`](mobile/README.md)
 
 ## Latest update
 
-**19 November 2026: a filling time for each day, and a low-level fill.**
-Firmware 0.6.0 and app 0.7.0 give every day of the week its own filling time
-(or none), set from a week view on the app's Control tab. With the filling
-times on, a tank that drops to 15 % (adjustable) now fills straight away
-instead of waiting. Data schema is 3, and the updated database rules were
-published to the live Firebase project. Details in
+**19 November 2026: live diagram, valve buttons, alarm-style times.**
+Firmware 0.7.0 and app 0.8.0. The Tank tab now opens with a live picture of
+the installation (water line, valve, tank, level sensor, float switch) and
+has Valve on / Valve off buttons that work in any mode without disturbing
+the filling times. Filling times are entered like an alarm (hour, minute,
+AM/PM) with one valve-on time for every day, and the unit can open the valve
+as each filling time starts. Data schema is 4. Details in
 [`CHANGELOG.md`](CHANGELOG.md).

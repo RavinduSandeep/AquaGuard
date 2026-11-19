@@ -169,6 +169,10 @@ windows with one per day: `sunStartMin`, `sunEndMin` ... `satStartMin`,
 bit means no filling time that day). It added `config.lowLevelFillPercent`
 (0 = off) and `status.schedule.lowLevelFill`.
 
+**Schema 4 (firmware 0.7.0, app 0.8.0)** added `config.fillAtWindowStart`,
+`status.valve.manualMinutes` and `status.valve.pauseRemainingS`, and the
+command types `valveOn` and `valveOff` (owner only, like `open` and `close`).
+
 A remote `setConfig` must carry the settings PIN. The PIN itself is stored
 only on the unit and is never written to Firebase by the unit.
 

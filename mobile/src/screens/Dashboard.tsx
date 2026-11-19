@@ -1,37 +1,70 @@
+import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 
-import { type Live } from '../data';
+import { sendCommand, type Live } from '../data';
 import { DAY_NAMES, describeWindow, formatDuration, groupDays, headline, humanize, levelIsCurrent, scheduleFromConfig, unitClock } from '../logic';
 import { Button, Card, Chip, Muted, Notice, Row, styles, useTheme } from '../ui';
+import { SystemDiagram } from './SystemDiagram';
 
-const TANK_HEIGHT = 176;
+/**
+ * Valve on and off, straight from the first screen. They work in every mode
+ * and leave the mode and the filling times as they are. The unit still
+ * decides: every interlock, the stop level and the time limit stay active.
+ */
+function ValveButtons({ deviceId, live }: { deviceId: string; live: Live }) {
+  const { status, online } = live;
+  const [busy, setBusy] = useState<'on' | 'off' | null>(null);
+  const [confirm, setConfirm] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  if (!status) return null;
 
-/** The tank, with the start and stop levels marked on its side. */
-function Tank({ percent, current, start, stop, low }: { percent: number; current: boolean; start?: number; stop?: number; low?: number }) {
-  const t = useTheme();
-  const mark = (value: number | undefined, label: string) =>
-    value === undefined ? null : (
-      <View style={{ position: 'absolute', left: 0, right: 0, bottom: (value / 100) * TANK_HEIGHT - 8, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-        <View style={{ width: 104, height: 2, backgroundColor: t.ink2, opacity: 0.55 }} />
-        <Text numberOfLines={1} style={{ color: t.ink2, fontSize: 11, flex: 1 }}>{label}</Text>
-      </View>
-    );
+  const open = status.valve.commanded;
+  const minutes = status.valve.manualMinutes;
+  const paused = status.valve.pauseRemainingS ?? 0;
+  const blocker = status.valve.openBlocker;
+  const send = async (key: 'on' | 'off') => {
+    setBusy(key);
+    setResult(null);
+    try {
+      const r = await sendCommand(deviceId, { type: key === 'on' ? 'valveOn' : 'valveOff' });
+      setResult({ ok: r.ok, text: r.ok ? (key === 'on' ? 'Valve commanded on' : 'Valve commanded off') : `Refused: ${humanize(r.reason)}` });
+    } catch (e) {
+      setResult({ ok: false, text: e instanceof Error ? e.message : 'Could not send the request' });
+    } finally {
+      setBusy(null);
+      setConfirm(false);
+    }
+  };
+
   return (
-    <View style={{ width: 172, height: TANK_HEIGHT }}>
-      <View
-        style={{ width: 104, height: TANK_HEIGHT, borderWidth: 3, borderColor: t.ink, borderRadius: 14, overflow: 'hidden', justifyContent: 'flex-end', backgroundColor: t.bg }}
-        accessibilityLabel={current ? `Tank ${Math.round(percent)} percent full` : 'Tank level unknown'}
-      >
-        <View style={{ height: `${Math.max(0, Math.min(100, percent))}%`, backgroundColor: current ? t.water : t.line }} />
-      </View>
-      {mark(stop, `stop ${stop}%`)}
-      {mark(start, `start ${start}%`)}
-      {mark(low, `low ${low}%`)}
-    </View>
+    <Card title="Valve">
+      <Row
+        label="Now"
+        value={open ? (status.valve.manualRemainingS ? `On, turns off in ${formatDuration(status.valve.manualRemainingS)}` : `On for ${formatDuration(status.valve.fillRuntimeS)}`) : 'Off'}
+        tone={open ? 'info' : undefined}
+      />
+      {paused ? <Row label="Automatic filling paused for" value={formatDuration(paused)} tone="warn" /> : null}
+      {!open && blocker !== 'NONE' && online ? <Row label="On would be refused" value={humanize(blocker)} tone="warn" /> : null}
+      {confirm ? (
+        <View style={styles.wrap}>
+          <Button kind="primary" label={minutes ? `Yes, on for up to ${minutes} min` : 'Yes, turn the valve on'} busy={busy === 'on'} disabled={!online} onPress={() => send('on')} style={{ flexGrow: 1 }} />
+          <Button label="Cancel" disabled={busy !== null} onPress={() => setConfirm(false)} style={{ flexGrow: 1 }} />
+        </View>
+      ) : (
+        <View style={styles.wrap}>
+          <Button kind="primary" label="Valve on…" disabled={!online || open || busy !== null} onPress={() => setConfirm(true)} style={{ flexGrow: 1 }} />
+          <Button kind="danger" label="Valve off" busy={busy === 'off'} disabled={!online || (busy !== null && busy !== 'off')} onPress={() => send('off')} style={{ flexGrow: 1 }} />
+        </View>
+      )}
+      {result ? <Notice tone={result.ok ? 'ok' : 'bad'} text={result.text} /> : null}
+      <Muted>
+        {`Works in any mode and outside the filling times; the mode and your filling times stay as they are. On closes by itself${minutes ? ` after ${minutes} min` : ''} or at the stop level, and the float, emergency stop and sensor checks stay active. Off in Auto pauses automatic filling for a while, until the next filling time at the latest.`}
+      </Muted>
+    </Card>
   );
 }
 
-export function Dashboard({ live, onOpenControl }: { live: Live; onOpenControl?: () => void }) {
+export function Dashboard({ deviceId, live, onOpenControl }: { deviceId: string; live: Live; onOpenControl?: () => void }) {
   const t = useTheme();
   const { status, config, online, serverNow } = live;
   const current = levelIsCurrent(status, online);
@@ -51,12 +84,11 @@ export function Dashboard({ live, onOpenControl }: { live: Live; onOpenControl?:
   return (
     <ScrollView contentContainerStyle={styles.screen}>
       <Card>
-        <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-          <Tank percent={level?.percent ?? 0} current={current} start={start} stop={stop} low={low} />
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text style={{ color: t.ink, fontSize: 60, fontWeight: '800', fontVariant: ['tabular-nums'], lineHeight: 66 }}>
-              {current ? `${Math.round(level!.percent!)}%` : '--%'}
-            </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', columnGap: 12 }}>
+          <Text style={{ color: t.ink, fontSize: 60, fontWeight: '800', fontVariant: ['tabular-nums'], lineHeight: 66 }}>
+            {current ? `${Math.round(level!.percent!)}%` : '--%'}
+          </Text>
+          <View style={{ gap: 2, paddingBottom: 6 }}>
             <Text style={{ color: t.ink2, fontSize: 15 }}>
               {current ? `about ${level!.litres} L (estimate)` : 'Current level unknown'}
             </Text>
@@ -66,6 +98,7 @@ export function Dashboard({ live, onOpenControl }: { live: Live; onOpenControl?:
           </View>
         </View>
         <Notice tone={head.tone} text={head.text} />
+        <SystemDiagram status={status} online={online} current={current} start={start} stop={stop} low={low} />
         {status && online ? (
           <View style={styles.wrap}>
             <Chip tone={status.valve.commanded ? 'info' : 'muted'} label={status.valve.commanded ? 'Valve open (commanded)' : 'Valve closed'} />
@@ -78,6 +111,8 @@ export function Dashboard({ live, onOpenControl }: { live: Live; onOpenControl?:
         ) : null}
         {status && !online && lastSeen ? <Muted>Last report {lastSeen} ago. Local automatic control and the hardware interlock keep working without internet.</Muted> : null}
       </Card>
+
+      <ValveButtons deviceId={deviceId} live={live} />
 
       {status ? (
         <>

@@ -166,7 +166,7 @@ function useLiveHistory(deviceId: string, hours: number) {
 
 export type CommandResult = { ok: boolean; reason?: string };
 export type Command =
-  | { type: 'close' | 'open' | 'ack' | 'mute' }
+  | { type: 'close' | 'open' | 'valveOn' | 'valveOff' | 'ack' | 'mute' }
   | { type: 'setMode'; mode: 'AUTO' | 'MANUAL' | 'MAINTENANCE' }
   | { type: 'setConfig'; config: DeviceConfig; pin: string };
 

@@ -903,6 +903,212 @@ static void test_fill_inside_the_window_with_no_water_still_latches() {
   TEST_ASSERT_TRUE(r.sm.faults() & kFaultNoProgress);
 }
 
+static void enableTopUp(Rig& r) {
+  r.cfg.scheduleEnabled = true;
+  r.cfg.fillAtWindowStart = true;
+  r.sm.applyConfig(r.cfg, r.now);
+  r.arm();
+}
+
+static void test_top_up_opens_the_valve_when_a_filling_time_starts() {
+  Rig r;
+  enableTopUp(r);
+  r.in.outsideSchedule = true;
+  r.in.levelPercent = 60.0f;  // above the start threshold
+  r.run(200);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  r.in.outsideSchedule = false;  // the filling time starts
+  r.run(40);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+  // The filling time ends before the tank is full: closed, no fault.
+  r.in.levelPercent = 70.0f;
+  r.in.outsideSchedule = true;
+  r.run(40);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  TEST_ASSERT_EQUAL(0, r.sm.faults());
+}
+
+static void test_top_up_runs_once_per_filling_time() {
+  Rig r;
+  enableTopUp(r);
+  r.in.outsideSchedule = true;
+  r.in.levelPercent = 60.0f;
+  r.run(100);
+  r.in.outsideSchedule = false;
+  r.run(40);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+  r.in.levelPercent = 90.0f;
+  r.run(40);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  r.in.levelPercent = 70.0f;  // used during the same filling time
+  r.run(400);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  TEST_ASSERT_FALSE(r.sm.topUpPending());
+}
+
+static void test_top_up_is_skipped_when_the_tank_is_nearly_full() {
+  Rig r;
+  enableTopUp(r);
+  r.in.outsideSchedule = true;
+  r.in.levelPercent = 87.0f;  // within 5 % of the stop threshold (90)
+  r.run(100);
+  r.in.outsideSchedule = false;
+  r.run(200);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+}
+
+static void test_top_up_needs_a_real_start_of_a_filling_time() {
+  // Switched off: a filling time starting changes nothing above the start threshold.
+  Rig off;
+  off.arm();
+  off.in.outsideSchedule = true;
+  off.in.levelPercent = 60.0f;
+  off.run(100);
+  off.in.outsideSchedule = false;
+  off.run(200);
+  TEST_ASSERT_FALSE(off.sm.valveRequest());
+
+  // A restart inside a filling time does not top up.
+  Rig boot;
+  enableTopUp(boot);
+  boot.in.levelPercent = 60.0f;
+  boot.run(400);
+  TEST_ASSERT_FALSE(boot.sm.valveRequest());
+
+  // Switching the schedule off while outside a filling time does not top up.
+  Rig r;
+  enableTopUp(r);
+  r.in.outsideSchedule = true;
+  r.in.levelPercent = 60.0f;
+  r.run(100);
+  r.cfg.scheduleEnabled = false;
+  r.sm.applyConfig(r.cfg, r.now);
+  r.in.outsideSchedule = false;
+  r.run(200);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+}
+
+static void test_top_up_respects_the_interlocks() {
+  Rig r;
+  enableTopUp(r);
+  r.in.outsideSchedule = true;
+  r.in.levelPercent = 60.0f;
+  r.run(100);
+  r.in.floatHealthy = false;
+  r.in.k1Enabled = false;
+  r.in.outsideSchedule = false;
+  r.run(200);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  TEST_ASSERT_TRUE(r.sm.faults() & kFaultFloat);
+}
+
+static void test_valve_on_works_in_auto_and_keeps_the_mode() {
+  Rig r;
+  r.arm();
+  r.in.outsideSchedule = true;  // outside the filling time, level above start
+  ASSERT_DENY(Deny::WrongMode, r.sm.requestOpen(r.now));  // the guide's OPEN still needs Manual
+  ASSERT_DENY(Deny::None, r.sm.requestValveOn(r.now));
+  r.run(200);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+  TEST_ASSERT_TRUE(r.sm.mode() == Mode::Auto);
+  TEST_ASSERT_TRUE(r.sm.manualRemainingS(r.now) > 0);
+  // It closes by itself after the manual time limit, still in Auto.
+  r.run(r.cfg.manualOpenMinutes * 60000UL + 1000);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  TEST_ASSERT_TRUE(r.sm.mode() == Mode::Auto);
+  TEST_ASSERT_EQUAL(0, r.sm.faults());
+}
+
+static void test_valve_on_passes_every_check_open_does() {
+  Rig disarmed;
+  disarmed.run(40);
+  ASSERT_DENY(Deny::Disarmed, disarmed.sm.requestValveOn(disarmed.now));
+
+  Rig full;
+  full.arm();
+  full.in.levelPercent = 92.0f;
+  full.run(40);
+  ASSERT_DENY(Deny::LevelHigh, full.sm.requestValveOn(full.now));
+
+  Rig stale;
+  stale.arm();
+  stale.in.levelValid = false;
+  stale.run(40);
+  ASSERT_DENY(Deny::SensorStale, stale.sm.requestValveOn(stale.now));
+
+  Rig tripped;
+  tripped.arm();
+  ASSERT_DENY(Deny::None, tripped.sm.requestValveOn(tripped.now));
+  tripped.in.floatHealthy = false;
+  tripped.in.k1Enabled = false;
+  tripped.run(40);
+  TEST_ASSERT_FALSE(tripped.sm.valveRequest());  // the float still closes it
+  ASSERT_DENY(Deny::FloatLoopFault, tripped.sm.requestValveOn(tripped.now));
+}
+
+static void test_valve_on_stops_at_the_stop_level() {
+  Rig r;
+  r.arm();
+  ASSERT_DENY(Deny::None, r.sm.requestValveOn(r.now));
+  r.in.levelPercent = 90.0f;
+  r.run(40);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+}
+
+static void test_valve_off_keeps_auto_and_pauses_automatic_filling() {
+  Rig r;
+  r.arm();
+  r.in.levelPercent = 30.0f;
+  r.run(40);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());  // automatic fill
+  ASSERT_DENY(Deny::None, r.sm.requestValveOff(r.now));
+  r.run(2000);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());  // does not reopen at once
+  TEST_ASSERT_TRUE(r.sm.mode() == Mode::Auto);
+  TEST_ASSERT_TRUE(r.sm.pauseRemainingS(r.now) > 0);
+  TEST_ASSERT_EQUAL(0, r.sm.faults());
+  // After the pause the unit fills again by itself.
+  r.run(r.cfg.retryMinutes * 60000UL + 1000);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+  TEST_ASSERT_EQUAL(0, r.sm.pauseRemainingS(r.now));
+}
+
+static void test_next_filling_time_still_runs_after_valve_off() {
+  Rig r;
+  r.cfg.scheduleEnabled = true;
+  r.sm.applyConfig(r.cfg, r.now);
+  r.arm();
+  r.in.levelPercent = 30.0f;
+  r.run(40);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+  ASSERT_DENY(Deny::None, r.sm.requestValveOff(r.now));
+  r.in.outsideSchedule = true;  // the filling time ends
+  r.run(1000);
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  TEST_ASSERT_TRUE(r.sm.pauseRemainingS(r.now) > 0);
+  r.in.outsideSchedule = false;  // the next filling time starts, pause still running
+  r.run(40);
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+  TEST_ASSERT_EQUAL(0, r.sm.pauseRemainingS(r.now));
+}
+
+static void test_valve_on_after_off_and_off_is_always_accepted() {
+  Rig r;
+  ASSERT_DENY(Deny::None, r.sm.requestValveOff(r.now));  // disarmed: still accepted
+  r.arm();
+  ASSERT_DENY(Deny::None, r.sm.requestValveOff(r.now));
+  TEST_ASSERT_TRUE(r.sm.pauseRemainingS(r.now) > 0);
+  ASSERT_DENY(Deny::None, r.sm.requestValveOn(r.now));  // ON ends the pause
+  TEST_ASSERT_TRUE(r.sm.valveRequest());
+  TEST_ASSERT_EQUAL(0, r.sm.pauseRemainingS(r.now));
+  // In Manual, OFF closes and there is nothing to pause.
+  ASSERT_DENY(Deny::None, r.sm.requestMode(Mode::Manual, r.now));
+  ASSERT_DENY(Deny::None, r.sm.requestValveOn(r.now));
+  ASSERT_DENY(Deny::None, r.sm.requestValveOff(r.now));
+  TEST_ASSERT_FALSE(r.sm.valveRequest());
+  TEST_ASSERT_EQUAL(0, r.sm.pauseRemainingS(r.now));
+}
+
 static void test_pin_format() {
   TEST_ASSERT_TRUE(pinFormatValid("4211"));
   TEST_ASSERT_TRUE(pinFormatValid("12345678"));
@@ -1004,6 +1210,17 @@ int main(int, char**) {
   RUN_TEST(test_fill_still_low_when_the_window_closes_carries_on);
   RUN_TEST(test_low_level_fill_with_no_water_retries_without_a_fault);
   RUN_TEST(test_fill_inside_the_window_with_no_water_still_latches);
+  RUN_TEST(test_top_up_opens_the_valve_when_a_filling_time_starts);
+  RUN_TEST(test_top_up_runs_once_per_filling_time);
+  RUN_TEST(test_top_up_is_skipped_when_the_tank_is_nearly_full);
+  RUN_TEST(test_top_up_needs_a_real_start_of_a_filling_time);
+  RUN_TEST(test_top_up_respects_the_interlocks);
+  RUN_TEST(test_valve_on_works_in_auto_and_keeps_the_mode);
+  RUN_TEST(test_valve_on_passes_every_check_open_does);
+  RUN_TEST(test_valve_on_stops_at_the_stop_level);
+  RUN_TEST(test_valve_off_keeps_auto_and_pauses_automatic_filling);
+  RUN_TEST(test_next_filling_time_still_runs_after_valve_off);
+  RUN_TEST(test_valve_on_after_off_and_off_is_always_accepted);
   RUN_TEST(test_pin_format);
   RUN_TEST(test_pin_guard_accepts_only_the_right_pin);
   RUN_TEST(test_pin_guard_locks_after_five_wrong_tries);

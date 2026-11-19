@@ -274,7 +274,7 @@
     });
   }
 
-  const BOOLS = ['commissioned', 'autoRetry', 'buzzerEnabled', 'scheduleEnabled'];
+  const BOOLS = ['commissioned', 'autoRetry', 'buzzerEnabled', 'scheduleEnabled', 'fillAtWindowStart'];
   const SKIP = ['schema', 'revision', 'valid'];
   async function loadConfig() {
     const r = await api('/api/config');

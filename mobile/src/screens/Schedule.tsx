@@ -2,19 +2,25 @@
 // the week. The unit only starts an automatic fill inside them, except when
 // the tank is very low (low-level fill). Saving needs the settings PIN.
 import { useEffect, useState } from 'react';
-import { Pressable, Switch, Text, View } from 'react-native';
+import { Pressable, Switch, Text, TextInput, View } from 'react-native';
 
 import { type Live } from '../data';
 import {
+  applyOnTime,
+  commonOnTime,
   copyDay,
   DAY_NAMES,
   DEFAULT_LOW_LEVEL,
   describeWindow,
   formatClock,
+  formatLength,
   formatUtcOffset,
+  from12h,
+  parseOnTime,
   scheduleFromConfig,
   schedulePatch,
-  stepClock,
+  setDayStart,
+  to12h,
   unitClock,
   WEEK_ORDER,
   windowSegments,
@@ -61,19 +67,155 @@ function StepButton({ label, hint, onPress, disabled }: { label: string; hint: s
   );
 }
 
-function TimeStepper({ label, value, onChange, disabled }: { label: string; value: number; onChange: (v: number) => void; disabled: boolean }) {
+function NumberBox({ value, onChangeText, onBlur, label, disabled, bad }: { value: string; onChangeText: (v: string) => void; onBlur?: () => void; label: string; disabled: boolean; bad?: boolean }) {
   const t = useTheme();
-  const step = (delta: number) => onChange(stepClock(value, delta));
+  return (
+    <TextInput
+      accessibilityLabel={label}
+      value={value}
+      onChangeText={(v) => onChangeText(v.replace(/[^0-9]/g, '').slice(0, 2))}
+      onBlur={onBlur}
+      editable={!disabled}
+      keyboardType="number-pad"
+      inputMode="numeric"
+      maxLength={2}
+      selectTextOnFocus
+      style={{
+        width: 64,
+        minHeight: 56,
+        borderWidth: 2,
+        borderColor: bad ? t.warn : t.line,
+        borderRadius: 12,
+        backgroundColor: t.card,
+        color: t.ink,
+        fontSize: 28,
+        fontWeight: '800',
+        textAlign: 'center',
+        fontVariant: ['tabular-nums'],
+        opacity: disabled ? 0.5 : 1,
+      }}
+    />
+  );
+}
+
+/** Time entry like an alarm clock: hour, minute, then AM or PM. */
+function TimeInput({ label, value, onChange, disabled }: { label: string; value: number; onChange: (v: number) => void; disabled: boolean }) {
+  const t = useTheme();
+  const shown = to12h(value);
+  const [hour, setHour] = useState(String(shown.hour));
+  const [minute, setMinute] = useState(String(shown.minute).padStart(2, '0'));
+  const [pm, setPm] = useState(shown.pm);
+
+  // Follow a change made elsewhere (Undo, a copy, a report from the unit).
+  useEffect(() => {
+    if (from12h(hour, minute, pm) !== value) {
+      const now = to12h(value);
+      setHour(String(now.hour));
+      setMinute(String(now.minute).padStart(2, '0'));
+      setPm(now.pm);
+    }
+    // Only when the value itself changes; typing is handled below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const typed = from12h(hour, minute, pm);
+  const commit = (h: string, m: string, p: boolean) => {
+    const next = from12h(h, m, p);
+    if (next !== null && next !== value) onChange(next);
+  };
+  const half = (isPm: boolean, text: string) => (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityState={{ selected: pm === isPm, disabled }}
+      accessibilityLabel={`${label}: ${text}`}
+      disabled={disabled}
+      onPress={() => {
+        setPm(isPm);
+        commit(hour, minute, isPm);
+      }}
+      style={{ minWidth: 56, minHeight: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: pm === isPm ? t.accent : t.card }}
+    >
+      <Text style={{ color: pm === isPm ? t.onAccent : t.ink2, fontSize: 14, fontWeight: '800' }}>{text}</Text>
+    </Pressable>
+  );
+
   return (
     <View style={{ gap: 4 }}>
       <Text style={{ color: t.ink2, fontSize: 13 }}>{label}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        <StepButton label="−1 h" hint={`${label}: one hour earlier`} onPress={() => step(-60)} disabled={disabled} />
-        <StepButton label="−15" hint={`${label}: 15 minutes earlier`} onPress={() => step(-15)} disabled={disabled} />
-        <Text style={{ flex: 1, textAlign: 'center', color: t.ink, fontSize: 20, fontWeight: '800', fontVariant: ['tabular-nums'] }}>{formatClock(value)}</Text>
-        <StepButton label="+15" hint={`${label}: 15 minutes later`} onPress={() => step(15)} disabled={disabled} />
-        <StepButton label="+1 h" hint={`${label}: one hour later`} onPress={() => step(60)} disabled={disabled} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <NumberBox label={`${label}: hour, 1 to 12`} value={hour} disabled={disabled} bad={typed === null} onChangeText={(v) => { setHour(v); commit(v, minute, pm); }} />
+        <Text style={{ color: t.ink, fontSize: 28, fontWeight: '800' }}>:</Text>
+        <NumberBox
+          label={`${label}: minute, 0 to 59`}
+          value={minute}
+          disabled={disabled}
+          bad={typed === null}
+          onChangeText={(v) => { setMinute(v); commit(hour, v, pm); }}
+          onBlur={() => { if (/^\d$/.test(minute)) setMinute(minute.padStart(2, '0')); }}
+        />
+        <View accessibilityRole="radiogroup" style={{ borderWidth: 2, borderColor: t.line, borderRadius: 12, overflow: 'hidden', opacity: disabled ? 0.5 : 1 }}>
+          {half(false, 'AM')}
+          {half(true, 'PM')}
+        </View>
       </View>
+      {typed === null ? <Text style={{ color: t.warn, fontSize: 13, fontWeight: '600' }}>Enter an hour from 1 to 12 and a minute from 0 to 59</Text> : null}
+    </View>
+  );
+}
+
+const ON_TIME_PRESETS = [10, 15, 30, 60, 120];
+
+/** How long the valve may stay on, the same for every filling time. */
+function OnTime({ value, onChange, disabled }: { value: number | null; onChange: (minutes: number) => void; disabled: boolean }) {
+  const t = useTheme();
+  const [hours, setHours] = useState(value === null ? '' : String(Math.floor(value / 60)));
+  const [minutes, setMinutes] = useState(value === null ? '' : String(value % 60));
+
+  useEffect(() => {
+    if (value !== null && parseOnTime(hours, minutes) !== value) {
+      setHours(String(Math.floor(value / 60)));
+      setMinutes(String(value % 60));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const typed = parseOnTime(hours, minutes);
+  const empty = hours === '' && minutes === '';
+  const commit = (h: string, m: string) => {
+    const next = parseOnTime(h, m);
+    if (next !== null && next !== value) onChange(next);
+  };
+
+  return (
+    <View style={{ gap: 8 }}>
+      <Text style={{ color: t.ink, fontSize: 16, fontWeight: '700' }}>Valve on time</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <NumberBox label="Valve on time: hours" value={hours} disabled={disabled} bad={!empty && typed === null} onChangeText={(v) => { setHours(v); commit(v, minutes); }} />
+        <Text style={{ color: t.ink2, fontSize: 15 }}>h</Text>
+        <NumberBox label="Valve on time: minutes" value={minutes} disabled={disabled} bad={!empty && typed === null} onChangeText={(v) => { setMinutes(v); commit(hours, v); }} />
+        <Text style={{ color: t.ink2, fontSize: 15 }}>min</Text>
+      </View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {ON_TIME_PRESETS.map((m) => (
+          <Pressable
+            key={m}
+            accessibilityRole="button"
+            accessibilityState={{ selected: value === m, disabled }}
+            accessibilityLabel={`Valve on time ${formatLength(m)}`}
+            disabled={disabled}
+            onPress={() => onChange(m)}
+            style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 999, borderWidth: value === m ? 2 : 1, borderColor: value === m ? t.accent : t.line, backgroundColor: value === m ? t.waterWash : t.card, opacity: disabled ? 0.45 : pressed ? 0.7 : 1 })}
+          >
+            <Text style={{ color: t.ink, fontSize: 14, fontWeight: '700' }}>{formatLength(m)}</Text>
+          </Pressable>
+        ))}
+      </View>
+      {!empty && typed === null ? <Text style={{ color: t.warn, fontSize: 13, fontWeight: '600' }}>Enter between 1 minute and 23 h 59 min</Text> : null}
+      <Muted>
+        {value === null
+          ? 'The days have different lengths now. Enter a valve on time to use the same one for every day.'
+          : `Used for every day: each filling time ends ${formatLength(value)} after it starts, so you only enter the start time.`}
+      </Muted>
     </View>
   );
 }
@@ -194,6 +336,8 @@ export function FillingTimes({ deviceId, live }: { deviceId: string; live: Live 
   const setDay = (part: Partial<DayWindow>) => set({ days: draft.days.map((w, d) => (d === day ? { ...w, ...part } : w)) });
   const same = (to: number[]) => to.every((d) => draft.days[d].on === window.on && draft.days[d].start === window.start && draft.days[d].end === window.end);
   const live_ = status?.schedule;
+  const onTime = commonOnTime(draft);
+  const hasTopUp = config.fillAtWindowStart !== undefined;
 
   // Low level: whole steps of 5 %, always below the start point.
   const lowMax = Math.max(5, Math.ceil(startPoint / 5) * 5 - 5);
@@ -226,7 +370,21 @@ export function FillingTimes({ deviceId, live }: { deviceId: string; live: Live 
 
         {draft.enabled ? (
           <>
-            <Muted>Tap a day to change it.</Muted>
+            <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: t.line, paddingTop: 12 }}>
+              <OnTime value={onTime} disabled={!canEdit} onChange={(m) => setDraft(applyOnTime(draft, m))} />
+              {hasTopUp ? (
+                <>
+                  <SwitchRow label="Open the valve when each filling time starts" value={draft.topUp} disabled={!canEdit} onChange={(v) => set({ topUp: v })} />
+                  <Muted>
+                    {draft.topUp
+                      ? `On: the valve opens at the start time and closes when the valve on time is over or the tank reaches the stop point, whichever comes first. Skipped if the tank is already within 5% of the stop point.`
+                      : `Off: inside a filling time the valve opens only when the level is at or below the start point (${startPoint}%).`}
+                  </Muted>
+                </>
+              ) : null}
+            </View>
+
+            <Muted>Tap a day to change its start time.</Muted>
             <WeekList days={draft.days} selected={day} today={clock.dayOfWeek} nowMinute={clock.minuteOfDay} onSelect={setSelected} />
 
             <View style={{ gap: 10, borderWidth: 1, borderColor: t.line, borderRadius: 12, padding: 12, backgroundColor: t.bg }}>
@@ -238,9 +396,8 @@ export function FillingTimes({ deviceId, live }: { deviceId: string; live: Live 
               {window.on ? (
                 <>
                   <DayBar start={window.start} end={window.end} nowMinute={day === clock.dayOfWeek ? clock.minuteOfDay : undefined} />
-                  <TimeStepper label="Water comes on at" value={window.start} onChange={(v) => setDay({ start: v })} disabled={!canEdit} />
-                  <TimeStepper label="Water goes off at" value={window.end} onChange={(v) => setDay({ end: v })} disabled={!canEdit} />
-                  <Muted>{window.start === window.end ? 'The two times are the same.' : describeWindow(window.start, window.end)}</Muted>
+                  <TimeInput key={day} label="Start time" value={window.start} onChange={(v) => setDraft(setDayStart(draft, day, v))} disabled={!canEdit} />
+                  <Row label="Ends at" value={describeWindow(window.start, window.end).replace(/^.*? to /, '')} />
                 </>
               ) : (
                 <Muted>No automatic filling on {DAY_NAMES[day]}, unless the tank gets very low and the low-level fill below is on.</Muted>
