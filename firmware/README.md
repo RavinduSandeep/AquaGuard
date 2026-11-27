@@ -65,6 +65,58 @@ Settings, then **Acknowledge** on the dashboard to arm (there is no ACK
 button on a bare board). **Never install this build on a wired unit**: it
 ignores the real safety inputs. Flash `aquaguard_s3` before wiring anything.
 
+## Stepper driver bench test (separate sketch)
+
+`examples/TMC2209_Motor_Test` is a small standalone sketch for trying a
+TMC2209 (Silent2209 V3.0) stepper driver on the ESP32-S3 dev kit. It is not
+part of the tank-control firmware and shares no code with it. It uses
+GPIO13 (STEP), GPIO14 (DIR) and GPIO15 (EN, active LOW), which the tank
+controller leaves free. The wiring notes are at the top of the sketch.
+
+```bash
+cd examples/TMC2209_Motor_Test
+pio run -e tmc2209_s3 -t upload
+pio device monitor
+```
+
+The driver stays disabled until you type a command (115200 baud): `f` or `r`
+jogs 400 pulses (about 2 seconds) and disables the driver again, `h` holds
+the driver on for 20 seconds without stepping (for fault finding: the shaft
+should go stiff), `s` stops, `?` shows help. Messages and commands work
+through either USB socket of the dev kit (the one marked USB or the one marked UART/COM).
+
+**Test page on the computer.** Double-click
+`examples/TMC2209_Motor_Test/Start_Motor_Tester.command` (or run
+`python tester/server.py` with pyserial installed) and open
+`http://localhost:8765`. The page sets speed (RPM), ramp and angle, turns the
+motor continuously with live speed changes, runs a back-and-forth test and has
+a STOP button. It talks to the board over USB through `@` commands
+(`@move`, `@run`, `@stop`, `@keep`, `@zero`, `@status`; listed at the top of
+the sketch). The server listens on this computer only and passes on only
+those commands. There are no end stops and nothing measures the shaft, so the
+angle shown is what was asked for, not what happened: keep the motor off the
+valve.
+
+The full wiring diagram, connection list and a fault-finding table are in
+`examples/TMC2209_Motor_Test/Wiring_Guide.pdf` (source: `Wiring_Guide.html`).
+`Wiring_Guide_A4988.pdf` in the same folder is the equivalent for an A4988
+driver module, which runs from the same sketch and test page unchanged. The
+A4988 wiring is taken from the data sheet and has not been tried on hardware.
+
+Tested so far: it builds; a simulated run on the computer confirms the pulse
+count, timing and that the driver is off at power-up and after every jog; and
+on a real ESP32-S3 (16 MB flash, 8 MB PSRAM) it starts and answers every
+command through the UART/COM socket with the right timing. After rewiring to
+the wiring guide (27 November 2026) the owner confirmed that an unloaded motor
+turns on `f` and `r`. That test ran without the optional 10 kΩ STEP
+pull-down. The test page and the `@` commands were checked in simulation (66
+checks: pulse counts, speeds, ramps, limits, bad input) and by real moves on
+the board through the page server; nobody was watching the shaft during those,
+and speeds above 120 RPM have not been tried. **Not yet tested: the motor
+attached to the valve.**
+Uploading it replaces the tank firmware on the board; flash `aquaguard_s3`
+(or `aquaguard_s3_sim`) again afterwards.
+
 ## Power saving (optional, off by default)
 
 **Network and remote access → Power saving** on the local dashboard makes the

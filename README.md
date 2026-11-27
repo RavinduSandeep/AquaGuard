@@ -28,6 +28,7 @@ listed in [`CHANGELOG.md`](CHANGELOG.md).
 ```
 documents/   Project guide (.docx), 2-page components and wiring sheet, users and sharing guide (PDF)
 firmware/    ESP32-S3 firmware (PlatformIO, Arduino C++) and the local web dashboard
+             firmware/examples/ holds a separate stepper driver bench-test sketch
 mobile/      Phone app (Expo / React Native, TypeScript)
 firebase/    Database access rules and their test
 docs/        Remote access setup guide
@@ -174,11 +175,13 @@ view. Details and emulator options are in [`mobile/README.md`](mobile/README.md)
 
 ## Latest update
 
-**19 November 2026: live diagram, valve buttons, alarm-style times.**
-Firmware 0.7.0 and app 0.8.0. The Tank tab now opens with a live picture of
-the installation (water line, valve, tank, level sensor, float switch) and
-has Valve on / Valve off buttons that work in any mode without disturbing
-the filling times. Filling times are entered like an alarm (hour, minute,
-AM/PM) with one valve-on time for every day, and the unit can open the valve
-as each filling time starts. Data schema is 4. Details in
+**27 November 2026: test page for the stepper driver sketch.**
+`firmware/examples/TMC2209_Motor_Test` now comes with a page that runs on this
+computer (`Start_Motor_Tester.command`, then `http://localhost:8765`) to try
+the motor at different speeds, ramps and angles, turn it continuously and run
+a back-and-forth test. The sketch gained the commands the page uses, a wiring
+guide and a hold test. The unloaded motor turns in both directions; it has not
+been tried on the valve. The tank firmware and the app are unchanged, so no
+version numbers moved. A second wiring guide covers the A4988 driver with the
+same sketch; that wiring has not been tried on hardware. Details in
 [`CHANGELOG.md`](CHANGELOG.md).

@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motor Test Bench</title>
+<style>
+  :root {
+    --bg: #f3f4f1; --panel: #ffffff; --ink: #1a1d1f; --muted: #626a70; --line: #d9ddd6;
+    --accent: #0f6e63; --accent-ink: #ffffff; --soft: #e8ede9; --stop: #c62b1e; --warn: #9a4a08; --ok: #1f7a3d;
+    --dial: #f7f8f5; --needle: #c62b1e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #15181a; --panel: #1e2326; --ink: #e9ecea; --muted: #9aa3a6; --line: #333a3e;
+      --accent: #3fb8a8; --accent-ink: #08201c; --soft: #2a3135; --stop: #e5493a; --warn: #f0a04b; --ok: #58c27d;
+      --dial: #171b1d; --needle: #ff6b5c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 14px; padding: 10px 16px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: 0.01em; }
+  .chip { font-size: 13px; padding: 3px 10px; border-radius: 999px; background: var(--soft); color: var(--muted); white-space: nowrap; }
+  .chip.ok { color: var(--ok); } .chip.bad { color: var(--stop); }
+  .spacer { flex: 1; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px;
+    padding: 7px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button.stop { background: var(--stop); color: #fff; border-color: var(--stop); font-weight: 700; font-size: 17px; padding: 9px 26px; letter-spacing: 0.04em; }
+  main { max-width: 1120px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); }
+  @media (max-width: 820px) { main { grid-template-columns: minmax(0, 1fr); } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  .stack { display: grid; gap: 16px; align-content: start; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  label { color: var(--muted); font-size: 13px; }
+  input[type=number] { font: inherit; width: 92px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-variant-numeric: tabular-nums; }
+  input[type=range] { flex: 1; min-width: 140px; accent-color: var(--accent); }
+  select { font: inherit; width: 100%; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+  .field { display: grid; gap: 3px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .grid2 > .field { min-width: 0; }
+  .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  .hint.warn { color: var(--warn); }
+  .dialwrap { display: grid; justify-items: center; }
+  svg.dial { width: 100%; max-width: 260px; height: auto; }
+  .readouts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .readout { background: var(--soft); border-radius: 6px; padding: 8px 10px; }
+  .readout b { display: block; font-size: 21px; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .readout span { font-size: 12px; color: var(--muted); }
+  #log { font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    height: 170px; overflow-y: auto; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .presets button { padding: 5px 10px; font-variant-numeric: tabular-nums; }
+  progress { width: 100%; accent-color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Motor Test Bench</h1>
+  <span id="link" class="chip">connecting...</span>
+  <span id="driver" class="chip">driver off</span>
+  <span class="spacer"></span>
+  <button class="stop" id="stop" title="Space or Esc">STOP</button>
+</header>
+
+<main>
+  <div class="stack">
+    <section>
+      <h2>Shaft position</h2>
+      <div class="dialwrap">
+        <svg class="dial" viewBox="0 0 240 240" aria-label="Shaft angle dial">
+          <circle cx="120" cy="120" r="104" fill="var(--dial)" stroke="var(--line)" stroke-width="2"/>
+          <g id="ticks" stroke="var(--muted)"></g>
+          <g font-size="12" fill="var(--muted)" text-anchor="middle">
+            <text x="120" y="42">0°</text><text x="203" y="124">90°</text><text x="120" y="208">180°</text><text x="37" y="124">270°</text>
+          </g>
+          <g id="needle">
+            <line x1="120" y1="120" x2="120" y2="34" stroke="var(--needle)" stroke-width="4" stroke-linecap="round"/>
+            <circle cx="120" cy="34" r="5" fill="var(--needle)"/>
+          </g>
+          <circle cx="120" cy="120" r="9" fill="var(--ink)"/>
+        </svg>
+      </div>
+      <div class="readouts">
+        <div class="readout"><b id="rAngle">0.0°</b><span>angle from zero</span></div>
+        <div class="readout"><b id="rSpeed">0</b><span>speed, RPM</span></div>
+        <div class="readout"><b id="rTurns">0.00</b><span>turns</span></div>
+        <div class="readout"><b id="rPulses">0</b><span>pulses</span></div>
+      </div>
+      <div class="row"><button id="zero">Set this as zero</button></div>
+      <p class="hint">This is the position the board asked for. Nothing measures the shaft, so a stalled or hand-turned motor will not match.</p>
+    </section>
+
+    <section>
+      <h2>Motor setup</h2>
+      <div class="grid2">
+        <div class="field"><label for="steps">Full steps per turn</label><input id="steps" type="number" min="1" max="1000" step="1" value="200"></div>
+        <div class="field"><label for="micro">Microstepping</label>
+          <select id="micro"><option value="1">Full step</option><option value="2">1/2</option><option value="4">1/4</option><option value="8" selected>1/8 (as wired)</option><option value="16">1/16</option><option value="32">1/32</option><option value="64">1/64</option></select></div>
+        <div class="field"><label for="gear">Gear ratio (motor turns per output turn)</label><input id="gear" type="number" min="0.01" max="1000" step="0.01" value="1"></div>
+      </div>
+      <p class="hint" id="pprHint"></p>
+      <p class="hint">Microstepping is set by how MS1 and MS2 are wired, not by this page. Choose what matches the wiring so the angles come out right.</p>
+    </section>
+  </div>
+
+  <div class="stack">
+    <section>
+      <h2>Speed and ramp</h2>
+      <div class="row"><label for="rpm" style="width:96px">Speed</label><input id="rpmRange" type="range" min="1" max="300" step="1" value="30"><input id="rpm" type="number" min="0.1" max="3000" step="0.1" value="30"><span>RPM</span></div>
+      <div class="row"><label for="ramp" style="width:96px">Ramp</label><input id="rampRange" type="range" min="0" max="3000" step="10" value="300"><input id="ramp" type="number" min="0" max="100000" step="10" value="300"><span>RPM per second</span></div>
+      <p class="hint" id="speedHint"></p>
+      <div class="row"><label><input type="checkbox" id="keep"> Keep the driver on after a move (holds the shaft; switches off after 2 idle minutes)</label></div>
+    </section>
+
+    <section>
+      <h2>Move by an angle</h2>
+      <div class="row presets" id="presets"></div>
+      <div class="row">
+        <button id="moveBack">◀ Reverse</button>
+        <input id="angle" type="number" min="0" max="360000" step="0.1" value="90"><span>degrees</span>
+        <button class="primary" id="moveFwd">Forward ▶</button>
+      </div>
+      <div class="row">
+        <label for="target">Go to angle from zero</label>
+        <input id="target" type="number" step="0.1" value="0"><span>degrees</span>
+        <button id="goto">Go</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Turn continuously</h2>
+      <div class="row">
+        <button id="runBack">◀ Run reverse</button>
+        <button class="primary" id="runFwd">Run forward ▶</button>
+        <button id="softStop">Slow down and stop</button>
+        <label for="limit">for at most</label><input id="limit" type="number" min="1" max="300" step="1" value="10"><span>seconds</span>
+      </div>
+      <p class="hint">While it turns, moving the speed slider changes the speed live.</p>
+    </section>
+
+    <section>
+      <h2>Back and forth test</h2>
+      <div class="row">
+        <label for="cAngle">Swing</label><input id="cAngle" type="number" min="0.1" max="36000" step="0.1" value="90"><span>degrees,</span>
+        <input id="cCount" type="number" min="1" max="1000" step="1" value="5"><span>times, pause</span>
+        <input id="cPause" type="number" min="0" max="60000" step="50" value="300"><span>ms</span>
+        <button class="primary" id="cStart">Start</button>
+      </div>
+      <progress id="cProgress" max="1" value="0"></progress>
+      <p class="hint" id="cHint">Goes forward by the swing, back again, and repeats. It should end exactly where it started; if it does not, the motor is losing steps at this speed.</p>
+    </section>
+
+    <section>
+      <h2>Messages from the board</h2>
+      <div id="log"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const MAX_PPS = 20000, MAX_ACCEL = 200000, MAX_PULSES = 2000000;
+let state = null, seq = 0, cycleRunning = false, cycleAbort = false, runDirection = 0;
+
+// ----- settings, remembered in this browser -----
+const saved = ['steps', 'micro', 'gear', 'rpm', 'ramp', 'angle', 'limit', 'cAngle', 'cCount', 'cPause'];
+for (const id of saved) { try { const v = localStorage.getItem('mt.' + id); if (v !== null) $(id).value = v; } catch (e) {} }
+function remember() { for (const id of saved) { try { localStorage.setItem('mt.' + id, $(id).value); } catch (e) {} } }
+
+const num = (id, fallback) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : fallback; };
+const ppr = () => Math.max(1, num('steps', 200)) * parseInt($('micro').value, 10) * Math.max(0.01, num('gear', 1));
+const maxRpm = () => MAX_PPS * 60 / ppr();
+const speedPps = () => Math.min(MAX_PPS, Math.max(1, num('rpm', 30) * ppr() / 60));
+const rampPps = () => Math.min(MAX_ACCEL, Math.max(0, num('ramp', 0) * ppr() / 60));
+const fmt = (v, d) => v.toFixed(d);
+
+function logLine(text) {
+  const box = $('log'), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
+  box.textContent += text + '\n';
+  if (box.textContent.length > 20000) box.textContent = box.textContent.slice(-15000);
+  if (atEnd) box.scrollTop = box.scrollHeight;
+}
+
+async function send(cmd) {
+  try {
+    const r = await fetch('/api/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd }) });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); logLine('! ' + (e.error || 'command failed') + ': ' + cmd); return false; }
+    return true;
+  } catch (e) { logLine('! the local server is not answering'); return false; }
+}
+
+function refreshHints() {
+  const p = ppr();
+  $('pprHint').textContent = `${fmt(p, 0)} pulses per output turn, ${fmt(360 / p, 3)}° per pulse.`;
+  const top = maxRpm(), wanted = num('rpm', 30);
+  const hint = $('speedHint');
+  if (wanted > top) { hint.className = 'hint warn'; hint.textContent = `The board tops out at ${MAX_PPS} pulses per second, which is ${fmt(top, 0)} RPM with this setup. It will run at that instead.`; }
+  else { hint.className = 'hint'; hint.textContent = `${fmt(speedPps(), 0)} pulses per second. Ramp 0 means full speed at once; a stepper usually stalls if asked to jump straight to a high speed.`; }
+  remember();
+}
+function link(rangeId, numberId) {
+  $(rangeId).value = $(numberId).value;
+  $(rangeId).addEventListener('input', () => { $(numberId).value = $(rangeId).value; onSpeedChanged(); });
+  $(numberId).addEventListener('input', () => { $(rangeId).value = $(numberId).value; onSpeedChanged(); });
+}
+let liveTimer = null;
+function onSpeedChanged() {
+  refreshHints();
+  if (runDirection !== 0 && state && state.status.moving) {
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(() => startRun(runDirection), 80);
+  }
+}
+link('rpmRange', 'rpm'); link('rampRange', 'ramp');
+for (const id of ['steps', 'micro', 'gear', 'angle', 'limit', 'cAngle', 'cCount', 'cPause']) $(id).addEventListener('input', refreshHints);
+
+// ----- commands -----
+function moveByAngle(degrees) {
+  const pulses = Math.round(degrees / 360 * ppr());
+  if (pulses === 0) { logLine('! that angle is smaller than one pulse'); return Promise.resolve(false); }
+  if (Math.abs(pulses) > MAX_PULSES) { logLine('! that move is too long for one command'); return Promise.resolve(false); }
+  runDirection = 0;
+  return send(`@move ${pulses} ${fmt(speedPps(), 1)} ${fmt(rampPps(), 1)}`);
+}
+function startRun(sign) {
+  const seconds = Math.min(300, Math.max(1, num('limit', 10)));
+  runDirection = sign;
+  return send(`@run ${fmt(sign * speedPps(), 1)} ${fmt(rampPps(), 1)} ${fmt(seconds, 0)}`);
+}
+function stopNow() { cycleAbort = true; runDirection = 0; return send('s'); }
+
+$('stop').onclick = stopNow;
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' || (e.key === ' ' && !['INPUT', 'SELECT', 'BUTTON'].includes(document.activeElement.tagName))) { e.preventDefault(); stopNow(); }
+});
+$('moveFwd').onclick = () => moveByAngle(Math.abs(num('angle', 0)));
+$('moveBack').onclick = () => moveByAngle(-Math.abs(num('angle', 0)));
+$('goto').onclick = () => { if (state) moveByAngle(num('target', 0) - state.status.pos / ppr() * 360); };
+$('runFwd').onclick = () => startRun(1);
+$('runBack').onclick = () => startRun(-1);
+$('softStop').onclick = () => { runDirection = 0; send('@stop'); };
+$('zero').onclick = () => send('@zero');
+$('keep').onchange = () => send('@keep ' + ($('keep').checked ? 1 : 0));
+
+for (const a of [1.8, 15, 45, 90, 180, 360]) {
+  const b = document.createElement('button'); b.textContent = a + '°';
+  b.onclick = () => { $('angle').value = a; remember(); };
+  $('presets').appendChild(b);
+}
+
+// ----- back and forth test -----
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function waitForMoveEnd(doneBefore, stoppedBefore) {
+  const giveUp = Date.now() + 10 * 60 * 1000;
+  while (Date.now() < giveUp) {
+    if (cycleAbort || !state || state.stopped > stoppedBefore) return false;
+    if (state.done > doneBefore) return true;
+    await sleep(40);
+  }
+  return false;
+}
+$('cStart').onclick = async () => {
+  if (cycleRunning || !state) return;
+  const swing = Math.abs(num('cAngle', 90)), count = Math.max(1, Math.round(num('cCount', 1))), pause = Math.max(0, num('cPause', 0));
+  cycleRunning = true; cycleAbort = false; $('cStart').disabled = true;
+  const startPulses = state.status.pos;
+  $('cProgress').max = count * 2; $('cProgress').value = 0;
+  let finished = true;
+  outer: for (let i = 0; i < count; i++) {
+    for (const sign of [1, -1]) {
+      const done = state.done, stopped = state.stopped;
+      if (!await moveByAngle(sign * swing) || !await waitForMoveEnd(done, stopped)) { finished = false; break outer; }
+      $('cProgress').value += 1;
+      $('cHint').textContent = `Swing ${i + 1} of ${count}...`;
+      await sleep(pause);
+    }
+  }
+  await sleep(150);
+  const off = state ? state.status.pos - startPulses : 0;
+  $('cHint').textContent = finished
+    ? `Done: ${count} swings. The board counts ${off} pulses from the start point (0 is expected). Check by eye that the shaft is really back where it began.`
+    : 'Stopped before the end.';
+  cycleRunning = false; $('cStart').disabled = false;
+};
+
+// ----- live view -----
+const ticks = $('ticks');
+for (let i = 0; i < 72; i++) {
+  const long = i % 6 === 0, a = i * 5 * Math.PI / 180, r1 = long ? 90 : 97, r2 = 104;
+  const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  l.setAttribute('x1', 120 + r1 * Math.sin(a)); l.setAttribute('y1', 120 - r1 * Math.cos(a));
+  l.setAttribute('x2', 120 + r2 * Math.sin(a)); l.setAttribute('y2', 120 - r2 * Math.cos(a));
+  l.setAttribute('stroke-width', long ? 2 : 1); ticks.appendChild(l);
+}
+function render() {
+  const s = state.status, p = ppr(), degrees = s.pos / p * 360;
+  $('needle').setAttribute('transform', `rotate(${degrees % 360} 120 120)`);
+  $('rAngle').textContent = fmt(degrees, 1) + '°';
+  $('rTurns').textContent = fmt(s.pos / p, 2);
+  $('rPulses').textContent = s.pos;
+  $('rSpeed').textContent = fmt(s.sps * 60 / p, 1);
+  const linkChip = $('link');
+  if (state.alive) { linkChip.className = 'chip ok'; linkChip.textContent = 'board connected'; }
+  else if (state.connected) { linkChip.className = 'chip bad'; linkChip.textContent = 'port open, board not answering'; }
+  else { linkChip.className = 'chip bad'; linkChip.textContent = 'board not found'; }
+  const d = $('driver');
+  d.textContent = s.moving ? 'moving' : (s.on ? 'driver on, holding' : 'driver off');
+  d.className = 'chip' + (s.on ? ' ok' : '');
+  if (document.activeElement !== $('keep')) $('keep').checked = !!s.keep;
+  if (!s.moving) runDirection = 0;
+  const busy = !state.alive;
+  for (const id of ['moveFwd', 'moveBack', 'goto', 'runFwd', 'runBack', 'softStop', 'zero']) $(id).disabled = busy;
+}
+async function poll() {
+  try {
+    const r = await fetch('/api/state?since=' + seq);
+    state = await r.json();
+    for (const entry of state.log) logLine(entry.text);
+    seq = state.seq;
+    render();
+  } catch (e) {
+    $('link').className = 'chip bad'; $('link').textContent = 'local server stopped';
+    if (state) state.alive = false;
+  }
+  setTimeout(poll, 120);
+}
+refreshHints();
+poll();
+</script>
+</body>
+</html>

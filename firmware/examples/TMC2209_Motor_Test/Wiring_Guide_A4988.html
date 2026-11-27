@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A4988 Motor Test: Wiring Guide</title>
+<style>
+  :root { --ink: #1b1f24; --muted: #5b6470; --line: #d5dae1; --soft: #f4f6f8; --warn: #9a3412; --warnbg: #fff4ec; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; color: var(--ink); font: 15px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 28px 20px 48px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 30px 0 8px; padding-top: 14px; border-top: 2px solid var(--line); }
+  p { margin: 8px 0; }
+  .sub { color: var(--muted); margin: 0 0 14px; }
+  .warn { background: var(--warnbg); border-left: 4px solid #ea580c; padding: 10px 14px; margin: 14px 0; }
+  .warn strong { color: var(--warn); }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); }
+  code, pre { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+  pre { background: var(--soft); padding: 10px 12px; overflow-x: auto; border-radius: 4px; }
+  code { background: var(--soft); padding: 1px 4px; border-radius: 3px; }
+  pre code { background: none; padding: 0; }
+  ol, ul { padding-left: 22px; margin: 8px 0; }
+  li { margin: 4px 0; }
+  .diagram { border: 1px solid var(--line); border-radius: 6px; padding: 6px; overflow-x: auto; }
+  svg { display: block; width: 100%; min-width: 640px; height: auto; }
+  svg text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: var(--ink); }
+  .swatch { display: inline-block; width: 22px; height: 4px; vertical-align: middle; margin-right: 6px; }
+  @media print { main { padding: 0; } h2 { break-after: avoid; } table, .diagram, .warn, pre { break-inside: avoid; } svg { min-width: 0; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>A4988 Motor Test: Wiring Guide</h1>
+  <p class="sub">ESP32-S3 dev kit, A4988 stepper driver module, 12 V supply, one stepper motor. Uses the same sketch (<code>TMC2209_Motor_Test.ino</code>) and the same test page as the TMC2209 guide, with no code changes.</p>
+
+  <div class="warn">
+    <strong>Before you wire anything</strong>
+    <ul>
+      <li>Wire with everything switched off: USB unplugged and the 12 V supply unplugged.</li>
+      <li>Never plug in or pull out the motor while 12 V is on. That can destroy the driver instantly.</li>
+      <li>Fit the 100 µF capacitor across VMOT and GND. On the A4988 this is not optional: without it, voltage spikes from the supply wires can kill the chip.</li>
+      <li>Measure the supply with a multimeter before connecting it. The A4988 needs 8 V to 35 V on VMOT; use 12 V.</li>
+      <li>12 V goes only to VMOT. Never let 12 V touch the ESP32 or the driver's VDD pin.</li>
+      <li>Set the current limit (section 7) before running the motor for long. The A4988 gets hot.</li>
+      <li>Keep the motor detached from the valve for this test.</li>
+    </ul>
+  </div>
+
+  <h2>1. Wiring diagram</h2>
+  <div class="diagram">
+  <svg viewBox="0 0 1000 640" role="img" aria-label="Wiring diagram: ESP32-S3 to A4988 driver, 12 V supply and stepper motor">
+    <!-- ESP32 -->
+    <rect x="40" y="100" width="180" height="510" rx="8" fill="#eef2f7" stroke="#334155" stroke-width="2"/>
+    <text x="130" y="128" text-anchor="middle" font-size="17" font-weight="700">ESP32-S3</text>
+    <text x="130" y="148" text-anchor="middle" font-size="15">dev kit</text>
+    <text x="130" y="270" text-anchor="middle" font-size="13" fill="#5b6470">USB cable to</text>
+    <text x="130" y="287" text-anchor="middle" font-size="13" fill="#5b6470">the computer</text>
+    <text x="130" y="304" text-anchor="middle" font-size="13" fill="#5b6470">(power + commands)</text>
+    <g font-size="15" font-weight="600" text-anchor="end">
+      <text x="208" y="175">GPIO15</text>
+      <text x="208" y="427">GPIO13</text>
+      <text x="208" y="469">GPIO14</text>
+      <text x="208" y="545">GND</text>
+      <text x="208" y="580">3V3</text>
+    </g>
+
+    <!-- Driver -->
+    <text x="520" y="92" text-anchor="middle" font-size="17" font-weight="700">A4988 driver module</text>
+    <text x="520" y="112" text-anchor="middle" font-size="13" fill="#5b6470">pin names as printed on the board</text>
+    <rect x="420" y="140" width="200" height="360" rx="6" fill="#fdeeee" stroke="#b91c1c" stroke-width="2"/>
+    <g font-size="15" font-weight="600">
+      <text x="434" y="175">ENABLE</text>
+      <text x="434" y="217">MS1</text>
+      <text x="434" y="259">MS2</text>
+      <text x="434" y="301">MS3</text>
+      <text x="434" y="343">RESET</text>
+      <text x="434" y="385">SLEEP</text>
+      <text x="434" y="427">STEP</text>
+      <text x="434" y="469">DIR</text>
+    </g>
+    <g font-size="15" font-weight="600" text-anchor="end">
+      <text x="606" y="175">VMOT</text>
+      <text x="606" y="217">GND</text>
+      <text x="606" y="259">2B</text>
+      <text x="606" y="301">2A</text>
+      <text x="606" y="343">1A</text>
+      <text x="606" y="385">1B</text>
+      <text x="606" y="427">VDD</text>
+      <text x="606" y="469">GND</text>
+    </g>
+
+    <!-- MS3 unused -->
+    <line x1="398" y1="296" x2="420" y2="296" stroke="#9aa3ae" stroke-width="2"/>
+    <text x="392" y="300" text-anchor="end" font-size="12" fill="#5b6470">leave empty</text>
+
+    <!-- EN wire + pull-up -->
+    <line x1="220" y1="170" x2="420" y2="170" stroke="#d97706" stroke-width="4"/>
+    <line x1="300" y1="170" x2="300" y2="108" stroke="#1b1f24" stroke-width="2"/>
+    <rect x="292" y="122" width="16" height="36" fill="#fff" stroke="#1b1f24" stroke-width="2"/>
+    <text x="284" y="145" text-anchor="end" font-size="13">10 kΩ</text>
+    <circle cx="300" cy="170" r="5" fill="#1b1f24"/>
+    <rect x="278" y="84" width="44" height="24" rx="12" fill="#9333ea"/><text x="300" y="101" text-anchor="middle" font-size="13" font-weight="700" style="fill:#fff">3V3</text>
+
+    <!-- MS1 MS2 to 3V3 -->
+    <polyline points="420,212 372,212 372,254 420,254" fill="none" stroke="#9333ea" stroke-width="3"/>
+    <line x1="372" y1="233" x2="346" y2="233" stroke="#9333ea" stroke-width="3"/>
+    <circle cx="372" cy="233" r="5" fill="#9333ea"/>
+    <rect x="302" y="221" width="44" height="24" rx="12" fill="#9333ea"/><text x="324" y="238" text-anchor="middle" font-size="13" font-weight="700" style="fill:#fff">3V3</text>
+
+    <!-- RESET to SLEEP jumper -->
+    <polyline points="420,338 384,338 384,380 420,380" fill="none" stroke="#0369a1" stroke-width="4"/>
+    <text x="376" y="363" text-anchor="end" font-size="12" font-weight="600">join these two</text>
+
+    <!-- STEP wire + pull-down -->
+    <line x1="220" y1="422" x2="420" y2="422" stroke="#15803d" stroke-width="4"/>
+    <line x1="256" y1="422" x2="256" y2="350" stroke="#1b1f24" stroke-width="2"/>
+    <rect x="248" y="372" width="16" height="36" fill="#fff" stroke="#1b1f24" stroke-width="2"/>
+    <text x="272" y="395" font-size="13">10 kΩ</text>
+    <circle cx="256" cy="422" r="5" fill="#1b1f24"/>
+    <rect x="234" y="326" width="44" height="24" rx="12" fill="#1b1f24"/><text x="256" y="343" text-anchor="middle" font-size="13" font-weight="700" style="fill:#fff">GND</text>
+
+    <!-- DIR wire -->
+    <line x1="220" y1="464" x2="420" y2="464" stroke="#1d4ed8" stroke-width="4"/>
+
+    <!-- logic GND -->
+    <polyline points="220,540 660,540 660,464 620,464" fill="none" stroke="#1b1f24" stroke-width="4"/>
+    <text x="440" y="532" text-anchor="middle" font-size="13">GND (ground)</text>
+    <!-- 3V3 to VDD -->
+    <polyline points="220,575 690,575 690,422 620,422" fill="none" stroke="#9333ea" stroke-width="4"/>
+    <text x="440" y="596" text-anchor="middle" font-size="13">3.3 V to VDD</text>
+
+    <!-- 12 V supply -->
+    <rect x="800" y="116" width="170" height="114" rx="8" fill="#fdf1f1" stroke="#991b1b" stroke-width="2"/>
+    <text x="895" y="143" text-anchor="middle" font-size="16" font-weight="700">12 V DC supply</text>
+    <text x="812" y="175" font-size="15" font-weight="700">+ 12 V</text>
+    <text x="812" y="217" font-size="15" font-weight="700">− (negative)</text>
+    <line x1="620" y1="170" x2="800" y2="170" stroke="#dc2626" stroke-width="4"/>
+    <line x1="620" y1="212" x2="800" y2="212" stroke="#1b1f24" stroke-width="4"/>
+    <!-- capacitor -->
+    <line x1="710" y1="170" x2="710" y2="186" stroke="#1b1f24" stroke-width="2"/>
+    <line x1="696" y1="186" x2="724" y2="186" stroke="#1b1f24" stroke-width="3"/>
+    <line x1="696" y1="195" x2="724" y2="195" stroke="#1b1f24" stroke-width="3"/>
+    <line x1="710" y1="195" x2="710" y2="212" stroke="#1b1f24" stroke-width="2"/>
+    <circle cx="710" cy="170" r="5" fill="#1b1f24"/><circle cx="710" cy="212" r="5" fill="#1b1f24"/>
+    <text x="731" y="185" font-size="12">+</text>
+    <text x="710" y="142" text-anchor="middle" font-size="13" font-weight="600">100 µF capacitor</text>
+    <text x="710" y="158" text-anchor="middle" font-size="12">(must be fitted)</text>
+
+    <!-- Motor -->
+    <rect x="800" y="240" width="170" height="156" rx="8" fill="#eef7f4" stroke="#0f766e" stroke-width="2"/>
+    <line x1="620" y1="254" x2="800" y2="254" stroke="#0f766e" stroke-width="4"/>
+    <line x1="620" y1="296" x2="800" y2="296" stroke="#0f766e" stroke-width="4"/>
+    <line x1="620" y1="338" x2="800" y2="338" stroke="#be185d" stroke-width="4"/>
+    <line x1="620" y1="380" x2="800" y2="380" stroke="#be185d" stroke-width="4"/>
+    <polyline points="812,254 824,254 824,296 812,296" fill="none" stroke="#0f766e" stroke-width="3"/>
+    <polyline points="812,338 824,338 824,380 812,380" fill="none" stroke="#be185d" stroke-width="3"/>
+    <text x="836" y="280" font-size="15" font-weight="600">Coil 2 (one pair)</text>
+    <text x="836" y="364" font-size="15" font-weight="600">Coil 1 (other pair)</text>
+    <text x="885" y="418" text-anchor="middle" font-size="16" font-weight="700">Stepper motor</text>
+    <text x="885" y="437" text-anchor="middle" font-size="13" fill="#5b6470">4 wires, 2 per coil</text>
+
+    <!-- pin dots -->
+    <g fill="#1b1f24">
+      <circle cx="220" cy="170" r="5"/><circle cx="220" cy="422" r="5"/><circle cx="220" cy="464" r="5"/><circle cx="220" cy="540" r="5"/><circle cx="220" cy="575" r="5"/>
+      <circle cx="420" cy="170" r="5"/><circle cx="420" cy="212" r="5"/><circle cx="420" cy="254" r="5"/><circle cx="420" cy="296" r="5"/><circle cx="420" cy="338" r="5"/><circle cx="420" cy="380" r="5"/><circle cx="420" cy="422" r="5"/><circle cx="420" cy="464" r="5"/>
+      <circle cx="620" cy="170" r="5"/><circle cx="620" cy="212" r="5"/><circle cx="620" cy="254" r="5"/><circle cx="620" cy="296" r="5"/><circle cx="620" cy="338" r="5"/><circle cx="620" cy="380" r="5"/><circle cx="620" cy="422" r="5"/><circle cx="620" cy="464" r="5"/>
+    </g>
+  </svg>
+  </div>
+  <p>The rounded labels <strong>GND</strong> and <strong>3V3</strong> mean "connect this point to ground" and "connect this point to 3.3 V". All GND points are one net. The driver's two GND pins are joined on its board, which is what links the ESP32 ground to the 12 V negative. Both must be connected.</p>
+
+  <h2>2. Connection list</h2>
+  <table>
+    <tr><th>#</th><th>From</th><th>To (driver pin)</th><th>Why</th></tr>
+    <tr><td>1</td><td>ESP32 <strong>GPIO15</strong></td><td><strong>ENABLE</strong></td><td>Switches the driver on (0 V) and off (3.3 V).</td></tr>
+    <tr><td>2</td><td>ESP32 <strong>GPIO13</strong></td><td><strong>STEP</strong></td><td>One pulse = one small step.</td></tr>
+    <tr><td>3</td><td>ESP32 <strong>GPIO14</strong></td><td><strong>DIR</strong></td><td>Direction.</td></tr>
+    <tr><td>4</td><td>ESP32 <strong>3V3</strong></td><td><strong>VDD</strong></td><td>Logic power for the driver. Use 3.3 V so the ESP32's signals are read correctly. Never 12 V.</td></tr>
+    <tr><td>5</td><td>ESP32 <strong>GND</strong></td><td><strong>GND</strong> (next to VDD)</td><td>Common ground. Without it the driver cannot read the ESP32 signals.</td></tr>
+    <tr><td>6</td><td>Supply <strong>+12 V</strong></td><td><strong>VMOT</strong></td><td>Motor power, 8 V to 35 V.</td></tr>
+    <tr><td>7</td><td>Supply <strong>negative</strong></td><td><strong>GND</strong> (next to VMOT)</td><td>Return for motor power.</td></tr>
+    <tr><td>8</td><td>100 µF capacitor (25 V or more)</td><td>across <strong>VMOT</strong> and its GND, close to the driver</td><td><strong>Required.</strong> Long leg (+) to VMOT, striped side to GND.</td></tr>
+    <tr><td>9</td><td>Driver <strong>RESET</strong></td><td>Driver <strong>SLEEP</strong></td><td>A short jumper between these two neighbouring pins. Without it the driver stays asleep and the motor never moves.</td></tr>
+    <tr><td>10</td><td>Driver <strong>MS1</strong> and <strong>MS2</strong></td><td>3V3</td><td>Selects 1/8 step, the same as the TMC2209 setup, so 400 pulses is again about a quarter turn.</td></tr>
+    <tr><td>11</td><td>Motor coil 1, both wires</td><td><strong>1A</strong> and <strong>1B</strong></td><td>One coil. See section 6 to find the pairs.</td></tr>
+    <tr><td>12</td><td>Motor coil 2, both wires</td><td><strong>2A</strong> and <strong>2B</strong></td><td>The other coil.</td></tr>
+    <tr><td>13</td><td>10 kΩ resistor</td><td>between <strong>ENABLE</strong> and 3V3</td><td>Keeps the driver off while the ESP32 starts. Worth fitting here: an unconnected ENABLE pin on the A4988 means the driver is <em>on</em>.</td></tr>
+    <tr><td>14</td><td>10 kΩ resistor</td><td>between <strong>STEP</strong> and GND</td><td>Stops stray steps while the ESP32 starts. Protective, not needed for movement. Never join STEP to GND with a plain wire.</td></tr>
+  </table>
+  <p><strong>Leave empty:</strong> MS3.</p>
+  <p><strong>Go by the names printed on the driver, not by position.</strong> On the usual module, looking at the top (the side with the small adjusting screw), one row is ENABLE, MS1, MS2, MS3, RESET, SLEEP, STEP, DIR and the other is VMOT, GND, 2B, 2A, 1A, 1B, VDD, GND. Many boards have the names printed only on the underside, so check before plugging in. A driver plugged in the wrong way round puts 12 V on the logic pins and is usually destroyed.</p>
+  <p>On the ESP32-S3 dev kit use the pins labelled <strong>13</strong>, <strong>14</strong>, <strong>15</strong>, <strong>3V3</strong> and <strong>GND</strong>. These are GPIO numbers, not positions counted along the header.</p>
+
+  <h3 style="font-size:16px;margin:18px 0 6px">Step size (MS1, MS2, MS3)</h3>
+  <table>
+    <tr><th>MS1</th><th>MS2</th><th>MS3</th><th>Step size</th><th>Pulses per turn (1.8° motor)</th></tr>
+    <tr><td>empty</td><td>empty</td><td>empty</td><td>Full step</td><td>200</td></tr>
+    <tr><td>3V3</td><td>empty</td><td>empty</td><td>1/2</td><td>400</td></tr>
+    <tr><td>empty</td><td>3V3</td><td>empty</td><td>1/4</td><td>800</td></tr>
+    <tr><td><strong>3V3</strong></td><td><strong>3V3</strong></td><td><strong>empty</strong></td><td><strong>1/8 (this guide)</strong></td><td><strong>1600</strong></td></tr>
+    <tr><td>3V3</td><td>3V3</td><td>3V3</td><td>1/16</td><td>3200</td></tr>
+  </table>
+  <p>An empty MS pin counts as low; the module pulls it to ground itself. If you choose another row, set the same step size under "Motor setup" on the test page so the angles come out right.</p>
+
+  <h2>3. Switching on, in order</h2>
+  <ol>
+    <li>Check every connection against the list with the power off.</li>
+    <li>Plug the ESP32 into the computer by USB.</li>
+    <li>Then switch on the 12 V supply.</li>
+    <li>To switch off: 12 V first, USB last. Only touch the motor wires after 12 V is off.</li>
+  </ol>
+  <p>If the 12 V comes from a USB-C PD trigger board: its switches must be set for 12 V, and the charger must actually offer 12 V. If the board falls back to 5 V the A4988 will not work at all, because it needs at least 8 V.</p>
+
+  <h2>4. Running the test</h2>
+  <p>The sketch already on the board works for the A4988 as it is. Nothing needs to be uploaded again.</p>
+  <p><strong>Test page:</strong> double-click <code>Start_Motor_Tester.command</code> in this folder. It opens <code>http://localhost:8765</code>, where you can set the speed, ramp and angle, turn continuously and run a back-and-forth test, with a STOP button. Leave "Microstepping" on 1/8 if you wired MS1 and MS2 to 3V3.</p>
+  <p><strong>Or by keyboard</strong>, in a serial monitor at 115200 baud:</p>
+<pre><code>cd ~/Desktop/TMC2209_Motor_Test
+/Users/Ravindu/Desktop/AquaGuard/.work/motor-test-tools/bin/pio device monitor</code></pre>
+  <table>
+    <tr><th>Key</th><th>What happens</th></tr>
+    <tr><td><code>f</code></td><td>Forward jog: 400 pulses in about 2 seconds, roughly a quarter turn, then the driver switches off.</td></tr>
+    <tr><td><code>r</code></td><td>The same in the other direction.</td></tr>
+    <tr><td><code>h</code></td><td>Hold test: the driver is on for 20 seconds without stepping. The shaft should lock firmly.</td></tr>
+    <tr><td><code>s</code></td><td>Stop and switch the driver off.</td></tr>
+    <tr><td><code>?</code></td><td>Show the commands.</td></tr>
+  </table>
+  <p>Only one program can use the USB port, so close the serial monitor before starting the test page, and the other way round.</p>
+
+  <h2>5. Fault finding</h2>
+  <p>Use a multimeter on DC volts, black probe on a driver GND pin, and measure <strong>on the driver's own pins</strong>, not on the wire ends.</p>
+  <table>
+    <tr><th>#</th><th>Measure</th><th>Should read</th><th>If not</th></tr>
+    <tr><td>1</td><td><strong>VMOT</strong> to GND</td><td>about 12 V (at least 8 V)</td><td>No motor power. Check the supply, its polarity and the two power wires.</td></tr>
+    <tr><td>2</td><td><strong>VDD</strong> to GND</td><td>3.3 V</td><td>The 3V3 wire or the ESP32 GND wire is missing or loose.</td></tr>
+    <tr><td>3</td><td><strong>SLEEP</strong> and <strong>RESET</strong> to GND</td><td>both about 3.3 V</td><td>The jumper between them is missing. This is the most common reason an A4988 does nothing.</td></tr>
+    <tr><td>4</td><td><strong>ENABLE</strong> to GND, nothing running</td><td>about 3 V</td><td>The pull-up resistor or the GPIO15 wire is misplaced.</td></tr>
+    <tr><td>5</td><td><strong>ENABLE</strong> to GND, after typing <code>h</code></td><td>0 V for 20 seconds</td><td>GPIO15 is not reaching ENABLE.</td></tr>
+    <tr><td>6</td><td><strong>DIR</strong> to GND, after typing <code>r</code>, then after <code>f</code></td><td>3.3 V after <code>r</code>, 0 V after <code>f</code></td><td>GPIO14 is not reaching DIR. The same kind of fault is then likely on STEP.</td></tr>
+    <tr><td>7</td><td>Turn the shaft by hand during <code>h</code></td><td>locked firmly</td><td>If 1 to 5 are right and it is still loose: motor wires (section 6), current set to almost zero (section 7), or the driver is damaged.</td></tr>
+  </table>
+  <ul>
+    <li><strong>Locked during <code>h</code> but no turning on <code>f</code>:</strong> power and motor are fine. The STEP wire (GPIO13 to STEP) is the problem.</li>
+    <li><strong>Buzzes or twitches but does not turn:</strong> the coil pairs are mixed up, or the current is set too low.</li>
+    <li><strong>Turns, then stops and starts again by itself:</strong> the driver is overheating and protecting itself. Lower the current or add the heat sink.</li>
+    <li><strong>Loose pins:</strong> the driver's header pins must be soldered.</li>
+  </ul>
+  <p>The A4988 is much louder than the Silent2209: a whine or hum while the motor turns or holds is normal.</p>
+
+  <h2>6. Finding the motor's coil pairs</h2>
+  <ol>
+    <li>Disconnect the motor from the driver (12 V off first).</li>
+    <li>Set the multimeter to resistance. Two wires that show a few ohms between them are one coil. Wires from different coils show no connection.</li>
+    <li>No meter: touch two motor wires together and turn the shaft by hand. If it is noticeably harder to turn, those two are a pair.</li>
+    <li>Put one pair on 1A and 1B and the other pair on 2A and 2B. Swapping the two wires of one pair only reverses the direction.</li>
+  </ol>
+
+  <h2>7. Setting the current limit</h2>
+  <p>The small screw on the driver sets the motor current. With 12 V and 3.3 V on, measure from the metal top of the screw to GND. That voltage is VREF. The current depends on the two small current-sense resistors on the board, so read the marking printed on them:</p>
+  <table>
+    <tr><th>Marking on the resistors</th><th>Motor current</th><th>VREF for 0.8 A</th></tr>
+    <tr><td><strong>R100</strong> (0.1 Ω, most low-cost modules)</td><td>VREF × 1.25</td><td>0.64 V</td></tr>
+    <tr><td><strong>R068</strong> (0.068 Ω)</td><td>VREF × 1.84</td><td>0.44 V</td></tr>
+    <tr><td><strong>R050</strong> (0.05 Ω)</td><td>VREF × 2.5</td><td>0.32 V</td></tr>
+  </table>
+  <p>Stay at or below the current printed on the motor or in its data sheet. Without a heat sink keep it to about 1 A; the chip's absolute limit is 2 A with good cooling. Turn the screw in small steps with a plastic or insulated screwdriver. Unlike the Silent2209, the A4988 keeps full current flowing while the motor stands still, so the driver and motor warm up during a hold.</p>
+
+  <p class="sub" style="margin-top:28px">Status: this A4988 wiring follows the chip's data sheet and the usual module layout, but it has not yet been tried on real hardware in this project. The sketch and test page were tested with the Silent2209 driver.</p>
+</main>
+</body>
+</html>

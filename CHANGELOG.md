@@ -5,6 +5,54 @@ Each program has its own version number (see `versions.json`). Versions follow
 changes that break compatibility. The data schema number goes up whenever the
 shape of the data shared by the unit, Firebase and the app changes.
 
+## 2026-11-27 (stepper driver wiring guide and test page)
+
+No version changes: the tank firmware and the phone app are untouched.
+
+### Firmware examples
+
+- `TMC2209_Motor_Test`: new test page for the computer (`tester/index.html`,
+  served by `tester/server.py`, started with `Start_Motor_Tester.command`).
+  Speed in RPM, ramp, move by angle, go to an angle, continuous turning with
+  live speed change, back-and-forth test, STOP.
+- Sketch: `@move`, `@run`, `@stop`, `@keep`, `@zero`, `@status`, `@watch`
+  line commands with speed ramps, a position count, a 20000 pulses/s limit, a
+  time limit on continuous turning and a 2 minute idle switch-off. The single
+  keys work as before. Checked by a simulated run (66 checks) and by real
+  moves on the board through the page server. Speeds above 120 RPM not tried.
+- New `Wiring_Guide_A4988.pdf` / `.html`: the same guide for an A4988 driver
+  module (RESET joined to SLEEP, MS1 and MS2 to 3V3 for 1/8 step, required
+  100 µF capacitor, current-limit table). From the data sheet; not yet tried
+  on hardware. The test page now also offers full, 1/2 and 1/4 step.
+
+- `TMC2209_Motor_Test`: new `h` command, a hold test that switches the driver
+  on for 20 seconds without stepping and then off again by itself.
+- New `Wiring_Guide.pdf` / `Wiring_Guide.html` in the sketch folder: wiring
+  diagram for the ESP32-S3, FYSETC Silent2209 V3.0 and 12 V supply, a
+  connection list and a fault-finding table.
+- Checked by a simulated run (32 checks) and on the real ESP32-S3: `f`, `r`,
+  `h`, `s` and `?` all answer correctly. The motor stayed limp on the first
+  try; after rewiring to the guide the owner confirmed that the unloaded
+  motor turns in both directions (without the optional STEP pull-down). Not
+  yet tried on the valve.
+
+## 2026-11-26 (stepper driver bench-test sketch)
+
+No version changes: the tank firmware and the phone app are untouched.
+
+### Firmware examples
+
+- New standalone sketch `firmware/examples/TMC2209_Motor_Test`: STEP/DIR jog
+  test for a TMC2209 driver on GPIO13/14/15, driver disabled unless a jog is
+  running.
+- Fix: messages and commands now work on both USB sockets of the dev kit.
+  Before, they only used the native USB socket, so a board plugged in through
+  the UART/COM socket showed nothing.
+- Checked by building, by a simulated run on the computer (pulse count,
+  timing, driver off at power-up and after each jog, stop, clock rollover),
+  and on a real ESP32-S3 dev kit for start-up, `?` and `s`. Not yet tried
+  with a real driver and motor.
+
 ## 2026-11-19 (diagram and valve buttons)
 
 ### Firmware 0.7.0
